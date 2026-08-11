@@ -10,6 +10,12 @@ import {
 import { ensureError } from "../helpers/ensure-error.js";
 import { singleFlight } from "../helpers/single-flight.js";
 import {
+  TenantResolution,
+  XeroTenantSummary,
+  explainUnresolved,
+  resolveTenant,
+} from "./tenant-selection.js";
+import {
   applyTokenResponse,
   isExpiring,
   isInvalidGrant,
@@ -36,24 +42,175 @@ if (!token_file && !bearer_token && (!client_id || !client_secret)) {
 }
 
 abstract class MCPXeroClient extends XeroClient {
-  public tenantId: string;
   private shortCode: string;
+
+  /** Settled organisation, or "" while unresolved. */
+  private resolvedTenantId = "";
+  private resolution?: TenantResolution;
+  /** Runtime choice via select-xero-tenant; outranks XERO_TENANT_ID. */
+  private selectedTenant?: string;
+  /**
+   * Organisations this connection reaches.
+   *
+   * Held here rather than read from the base class's `tenants`, because
+   * custom connections never populate that: they read /connections directly
+   * and would otherwise have no tenant list to list from or select against.
+   */
+  private knownTenants: XeroTenantSummary[] = [];
 
   protected constructor(config?: IXeroClientConfig) {
     super(config);
-    this.tenantId = "";
     this.shortCode = "";
   }
 
   public abstract authenticate(): Promise<void>;
 
+  /**
+   * Throws rather than returning a guess. Every handler reads this before a
+   * call, so an ambiguous connection fails with an explanation instead of
+   * quietly operating on whichever organisation Xero happened to list first.
+   */
+  public get tenantId(): string {
+    if (!this.resolvedTenantId) {
+      throw new Error(explainUnresolved(this.resolution));
+    }
+    return this.resolvedTenantId;
+  }
+
+  public set tenantId(tenantId: string) {
+    this.resolvedTenantId = tenantId;
+  }
+
+  /** Non-throwing view, for diagnostics that must report rather than fail. */
+  public get activeTenant(): XeroTenantSummary | undefined {
+    return this.resolution?.kind === "resolved" ? this.resolution.tenant : undefined;
+  }
+
+  public get tenantResolution(): TenantResolution | undefined {
+    return this.resolution;
+  }
+
+  public get tenantPreference(): string | undefined {
+    return this.selectedTenant ?? process.env.XERO_TENANT_ID;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async updateTenants(fullOrgDetails?: boolean): Promise<any[]> {
     await super.updateTenants(fullOrgDetails);
-    if (this.tenants && this.tenants.length > 0) {
-      this.tenantId = this.tenants[0].tenantId;
-    }
+    this.setKnownTenants(this.tenants ?? []);
     return this.tenants;
+  }
+
+  /**
+   * Record the reachable organisations and re-apply any preference.
+   * Called from both auth paths, since only one of them goes through
+   * updateTenants().
+   */
+  protected setKnownTenants(
+    tenants: { tenantId: string; tenantName?: string; tenantType?: string }[],
+  ): void {
+    this.knownTenants = tenants.map((t) => ({
+      tenantId: t.tenantId,
+      tenantName: t.tenantName,
+      tenantType: t.tenantType,
+    }));
+    this.applyTenantPreference();
+  }
+
+  private applyTenantPreference(): void {
+    let resolution: TenantResolution;
+    try {
+      resolution = resolveTenant(
+        this.knownTenants,
+        this.tenantPreference,
+        this.selectedTenant ? "selection" : "environment",
+      );
+    } catch (error) {
+      // A bad preference must not break authentication itself — otherwise
+      // list-xero-tenants, the tool that shows the valid options, is disabled
+      // by the very setting the user needs to correct.
+      resolution = {
+        kind: "preference-error",
+        message: ensureError(error).message,
+      };
+    }
+
+    this.setResolution(resolution);
+  }
+
+  /**
+   * The single place the active organisation changes.
+   *
+   * Organisation-scoped caches are cleared here, keyed off the change itself
+   * rather than off the callers that can cause one — authentication, an
+   * explicit selection, and invalidation can all move it, and remembering to
+   * clear at each site is exactly how a stale short code survives into deep
+   * links pointing at another company.
+   */
+  private setResolution(resolution?: TenantResolution): void {
+    const previous = this.resolvedTenantId;
+
+    this.resolution = resolution;
+    this.resolvedTenantId =
+      resolution?.kind === "resolved" ? resolution.tenant.tenantId : "";
+
+    if (this.resolvedTenantId !== previous) {
+      this.clearOrganisationScopedState();
+    }
+  }
+
+  /**
+   * Organisations this authorisation can reach, re-read from Xero.
+   *
+   * Deliberately not cached: re-authorising can add or remove granted
+   * organisations without restarting the server, so a cached list would report
+   * access that no longer exists — or hide access that now does.
+   */
+  public async listTenants(): Promise<XeroTenantSummary[]> {
+    await this.authenticate();
+    return [...this.knownTenants];
+  }
+
+  /**
+   * Drop what is known about organisations, so the next call re-reads them.
+   * Called after re-authorisation, where the granted set may have changed.
+   */
+  public invalidateTenants(): void {
+    this.knownTenants = [];
+    this.setResolution(undefined);
+    // Unconditional, unlike the change-keyed clearing in setResolution: after
+    // invalidation the active organisation is unknown rather than unchanged,
+    // so nothing scoped to it can still be trusted.
+    this.clearOrganisationScopedState();
+  }
+
+  /**
+   * Anything cached about the *current* organisation, cleared whenever the
+   * active organisation can change. Keeping this in one place is the point:
+   * the short code is used to build Xero deep links, and a stale one sends
+   * people to a different company's records while every other value is right.
+   */
+  private clearOrganisationScopedState(): void {
+    this.shortCode = "";
+  }
+
+  /**
+   * Point this server at an organisation for the rest of the process.
+   * Throws UnknownTenantError if the token cannot reach it.
+   */
+  public async selectTenant(preference: string): Promise<XeroTenantSummary> {
+    const available = await this.listTenants();
+
+    // Resolve before storing, so a bad preference cannot strand the server.
+    const resolution = resolveTenant(available, preference, "selection");
+    if (resolution.kind !== "resolved") {
+      throw new Error(explainUnresolved(resolution));
+    }
+
+    this.selectedTenant = preference;
+    this.setResolution(resolution);
+
+    return resolution.tenant;
   }
 
   private async getOrganisation(): Promise<Organisation> {
@@ -200,9 +357,11 @@ class CustomConnectionsXeroClient extends MCPXeroClient {
       },
     );
 
-    if (connectionsResponse.data && connectionsResponse.data.length > 0) {
-      this.tenantId = connectionsResponse.data[0].tenantId;
-    }
+    // Custom connections never go through updateTenants(), so this is the only
+    // place their organisations become known. Record them all and apply the
+    // preference, rather than taking the first — otherwise tenant listing and
+    // selection are dead in this mode, and XERO_TENANT_ID is ignored.
+    this.setKnownTenants(connectionsResponse.data ?? []);
 
     return response.data;
   }

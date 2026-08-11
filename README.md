@@ -222,6 +222,36 @@ claude mcp add xero -s user \
 
 Re-authorise only if the refresh token is revoked, or goes 60 days unused.
 
+##### Working with more than one organisation
+
+> Added in this fork.
+
+A single Xero authorisation can cover several organisations — the user picks which ones to grant
+during consent, and one refresh token then reaches them all.
+
+Upstream resolves this by taking the first connection Xero returns. Xero does not promise an order,
+so with more than one organisation that is a coin toss between ledgers, and a write landing in the
+wrong company looks entirely normal in the response.
+
+This fork refuses to guess. With one organisation, nothing changes and it is used automatically.
+With several, calls fail with an explanation until an organisation is chosen:
+
+- **`XERO_TENANT_ID`** — pin a server to one organisation, by name or tenant id. Best when the
+  organisation is known in advance: run one server per organisation (`xero-acme`, `xero-widgets`)
+  and there is nothing to get wrong at call time.
+- **`list-xero-tenants` tool** — show which organisations the connection reaches, and which is
+  active.
+- **`select-xero-tenant` tool** — switch at runtime, by name or tenant id. The choice lasts for the
+  life of the server process and applies to every caller using it, so it is the weaker option when
+  several sessions share one server.
+
+A preference naming an organisation the token cannot reach is an error, never a fallback: being
+handed one organisation after asking for another is exactly the failure this prevents.
+
+Xero does not require organisation names to be unique. Where a name matches more than one reachable
+organisation it is rejected rather than resolved by position, and the tenant id is required —
+otherwise name matching would quietly reintroduce the arbitrary choice this is meant to remove.
+
 ##### Checking and repairing auth
 
 These ship with the server, so nothing has to be installed client-side:

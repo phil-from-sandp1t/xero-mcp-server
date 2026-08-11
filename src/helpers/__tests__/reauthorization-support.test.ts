@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { reauthorizationUnsupportedReason } from "../reauthorize-xero.tool.js";
+import { reauthorizationUnsupportedReason } from "../reauthorization-support.js";
 
 describe("reauthorizationUnsupportedReason", () => {
   it("permits re-authorisation in refresh-token mode", () => {

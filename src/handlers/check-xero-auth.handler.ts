@@ -1,5 +1,6 @@
 import { FALLBACK_SCOPES } from "../auth/pkce.js";
 import { xeroClient } from "../clients/xero-client.js";
+import { explainUnresolved } from "../clients/tenant-selection.js";
 import { readTokenStore } from "../clients/xero-token-store.js";
 import { ensureError } from "../helpers/ensure-error.js";
 import { XeroAuthStatus, currentAuthMode } from "../helpers/xero-auth-status.js";
@@ -46,10 +47,29 @@ export async function checkXeroAuth(
   try {
     // Renews the access token first if it is close to expiry.
     await xeroClient.authenticate();
-    status.tenantId = xeroClient.tenantId || undefined;
+
+    // Non-throwing views throughout: an ambiguous connection is exactly what
+    // this tool exists to report, so it must not fail on one.
+    const tenants = await xeroClient.listTenants();
+    status.availableTenants = tenants.map((t) => t.tenantName ?? t.tenantId);
+
+    const active = xeroClient.activeTenant;
+    if (!active) {
+      // The credentials work — the target does not. Kept distinct so the
+      // remedy offered is selecting an organisation, not re-authorising.
+      status.needsTenantSelection = true;
+      status.error = explainUnresolved(xeroClient.tenantResolution);
+      return status;
+    }
+
+    status.tenantId = active.tenantId;
+    status.tenantSource =
+      xeroClient.tenantResolution?.kind === "resolved"
+        ? xeroClient.tenantResolution.source
+        : undefined;
 
     const response = await xeroClient.accountingApi.getOrganisations(
-      xeroClient.tenantId || "",
+      active.tenantId,
     );
     status.organisationName = response.body.organisations?.[0]?.name;
     status.ok = true;
