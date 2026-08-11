@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import http from "node:http";
+import { AddressInfo } from "node:net";
 import path from "node:path";
 
 import {
@@ -223,7 +224,8 @@ export const CALLBACK_HOST = "127.0.0.1";
 export function awaitCallback(
   port: number,
   expectedState: string,
-  onListening: () => void,
+  /** Receives the bound address, so callers can confirm what was exposed. */
+  onListening: (address?: AddressInfo | string | null) => void,
 ): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -286,6 +288,6 @@ export function awaitCallback(
     });
 
     server.on("error", reject);
-    server.listen(port, CALLBACK_HOST, onListening);
+    server.listen(port, CALLBACK_HOST, () => onListening(server.address()));
   });
 }
