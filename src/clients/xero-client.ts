@@ -114,8 +114,9 @@ abstract class MCPXeroClient extends XeroClient {
   }
 
   private applyTenantPreference(): void {
+    let resolution: TenantResolution;
     try {
-      this.resolution = resolveTenant(
+      resolution = resolveTenant(
         this.knownTenants,
         this.tenantPreference,
         this.selectedTenant ? "selection" : "environment",
@@ -124,14 +125,34 @@ abstract class MCPXeroClient extends XeroClient {
       // A bad preference must not break authentication itself — otherwise
       // list-xero-tenants, the tool that shows the valid options, is disabled
       // by the very setting the user needs to correct.
-      this.resolution = {
+      resolution = {
         kind: "preference-error",
         message: ensureError(error).message,
       };
     }
 
+    this.setResolution(resolution);
+  }
+
+  /**
+   * The single place the active organisation changes.
+   *
+   * Organisation-scoped caches are cleared here, keyed off the change itself
+   * rather than off the callers that can cause one — authentication, an
+   * explicit selection, and invalidation can all move it, and remembering to
+   * clear at each site is exactly how a stale short code survives into deep
+   * links pointing at another company.
+   */
+  private setResolution(resolution?: TenantResolution): void {
+    const previous = this.resolvedTenantId;
+
+    this.resolution = resolution;
     this.resolvedTenantId =
-      this.resolution.kind === "resolved" ? this.resolution.tenant.tenantId : "";
+      resolution?.kind === "resolved" ? resolution.tenant.tenantId : "";
+
+    if (this.resolvedTenantId !== previous) {
+      this.clearOrganisationScopedState();
+    }
   }
 
   /**
@@ -152,8 +173,10 @@ abstract class MCPXeroClient extends XeroClient {
    */
   public invalidateTenants(): void {
     this.knownTenants = [];
-    this.resolution = undefined;
-    this.resolvedTenantId = "";
+    this.setResolution(undefined);
+    // Unconditional, unlike the change-keyed clearing in setResolution: after
+    // invalidation the active organisation is unknown rather than unchanged,
+    // so nothing scoped to it can still be trusted.
     this.clearOrganisationScopedState();
   }
 
@@ -181,9 +204,7 @@ abstract class MCPXeroClient extends XeroClient {
     }
 
     this.selectedTenant = preference;
-    this.resolution = resolution;
-    this.resolvedTenantId = resolution.tenant.tenantId;
-    this.clearOrganisationScopedState();
+    this.setResolution(resolution);
 
     return resolution.tenant;
   }

@@ -49,6 +49,29 @@ describe("organisation-scoped cache", () => {
     expect(client.activeTenant).toMatchObject({ tenantId: "id-b" });
   });
 
+  it("drops the cached short code when authentication resolves a different organisation", () => {
+    client.setKnownTenants([{ tenantId: "id-a", tenantName: "A Ltd" }]);
+    client.shortCode = "ORG-A";
+
+    // What another process re-authorising to a different grant looks like from
+    // here: the same code path, a different organisation.
+    client.setKnownTenants([{ tenantId: "id-b", tenantName: "B Ltd" }]);
+
+    expect(client.activeTenant).toMatchObject({ tenantId: "id-b" });
+    expect(client.shortCode).toBe("");
+  });
+
+  it("keeps the cached short code when the organisation is unchanged", () => {
+    client.setKnownTenants([{ tenantId: "id-a", tenantName: "A Ltd" }]);
+    client.shortCode = "ORG-A";
+
+    // Re-authenticating against the same organisation must not throw away a
+    // perfectly valid cache on every call.
+    client.setKnownTenants([{ tenantId: "id-a", tenantName: "A Ltd" }]);
+
+    expect(client.shortCode).toBe("ORG-A");
+  });
+
   it("clears the settled organisation too, so the next call re-resolves", () => {
     client.setKnownTenants([{ tenantId: "id-a", tenantName: "A Ltd" }]);
     expect(client.activeTenant).toMatchObject({ tenantId: "id-a" });
