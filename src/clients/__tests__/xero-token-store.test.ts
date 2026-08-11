@@ -61,6 +61,20 @@ describe("writeTokenStore", () => {
     expect(fs.existsSync(`${file}.tmp`)).toBe(false);
   });
 
+  it("does not inherit permissions from a temp file left by an earlier crash", () => {
+    const file = tempFile();
+    // A stale temp file, world-readable, as a crashed run might leave behind.
+    fs.writeFileSync(`${file}.tmp`, "leftover");
+    fs.chmodSync(`${file}.tmp`, 0o666);
+
+    writeTokenStore(file, { refresh_token: "r1" });
+
+    // The rename hands the temp file's permissions to the live token file, so
+    // reusing a loose one would quietly expose the refresh token.
+    expect(fs.statSync(file).mode & 0o077).toBe(0);
+    expect(fs.existsSync(`${file}.tmp`)).toBe(false);
+  });
+
   it("keeps the token file private to its owner", () => {
     const file = tempFile();
     writeTokenStore(file, { refresh_token: "r1" });

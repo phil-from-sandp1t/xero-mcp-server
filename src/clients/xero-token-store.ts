@@ -68,7 +68,20 @@ export function readTokenStore(file: string): XeroTokenStore {
 export function writeTokenStore(file: string, store: XeroTokenStore): void {
   // Write-then-rename: a half-written token file costs an interactive re-auth.
   const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2), { mode: 0o600 });
+
+  // The mode argument only applies when the file is created, so a temp file
+  // left behind by an earlier crash would be reused with whatever permissions
+  // it already had — and the rename would hand those to the live token file.
+  // Remove it, create exclusively, and set the mode on the descriptor.
+  fs.rmSync(tmp, { force: true });
+  const handle = fs.openSync(tmp, "wx", 0o600);
+  try {
+    fs.fchmodSync(handle, 0o600);
+    fs.writeFileSync(handle, JSON.stringify(store, null, 2));
+  } finally {
+    fs.closeSync(handle);
+  }
+
   fs.renameSync(tmp, file);
 }
 

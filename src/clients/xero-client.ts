@@ -8,6 +8,7 @@ import {
 } from "xero-node";
 
 import { ensureError } from "../helpers/ensure-error.js";
+import { singleFlight } from "../helpers/single-flight.js";
 import {
   applyTokenResponse,
   isExpiring,
@@ -20,6 +21,9 @@ import {
 } from "./xero-token-store.js";
 
 dotenv.config();
+
+/** Grace for another process's rotation to reach disk before giving up. */
+const ROTATION_SETTLE_MS = 250;
 
 const client_id = process.env.XERO_CLIENT_ID;
 const client_secret = process.env.XERO_CLIENT_SECRET;
@@ -283,6 +287,19 @@ class RefreshTokenXeroClient extends MCPXeroClient {
     return updated;
   }
 
+  /**
+   * One refresh at a time. Two concurrent tool calls would otherwise send the
+   * same refresh token: Xero rotates on first use, so the second is rejected
+   * as invalid_grant and reads as a dead credential when nothing is wrong.
+   */
+  private readonly refreshOnce = singleFlight(async () => {
+    // Re-read inside the flight: a queued caller must not act on the token it
+    // saw before the winner rotated it.
+    const store = readTokenStore(this.tokenFile);
+    if (!isExpiring(store)) return store;
+    return this.refreshTolerantly(store);
+  });
+
   private async currentStore(): Promise<XeroTokenStore> {
     // Read every time rather than trusting the cache: another process sharing
     // this token file (a second MCP client, the bootstrap script) may have
@@ -293,20 +310,37 @@ class RefreshTokenXeroClient extends MCPXeroClient {
       return onDisk;
     }
 
+    // Concurrent callers share one refresh rather than each sending the same
+    // refresh token, which Xero would reject after the first use.
+    return this.refreshOnce();
+  }
+
+  /**
+   * Refresh, tolerating a rotation performed by another process.
+   *
+   * invalid_grant means this refresh token has already been used. That is a
+   * dead credential only if nobody else rotated it — so re-read before
+   * concluding it, and once more after a short pause, since the winner's write
+   * may not have landed when the rejection arrived.
+   */
+  private async refreshTolerantly(onDisk: XeroTokenStore): Promise<XeroTokenStore> {
     try {
       return await this.refreshAndPersist(onDisk);
     } catch (error) {
       if (!isInvalidGrant(error)) throw error;
 
-      // Lost a rotation race: re-read and retry once with whoever won.
-      const reread = readTokenStore(this.tokenFile);
-      if (reread.refresh_token === onDisk.refresh_token) {
-        throw new Error(
-          `Xero refresh token was rejected. Re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
-        );
+      for (const waitMs of [0, ROTATION_SETTLE_MS]) {
+        if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+        const reread = readTokenStore(this.tokenFile);
+        if (reread.refresh_token !== onDisk.refresh_token) {
+          return isExpiring(reread) ? this.refreshAndPersist(reread) : reread;
+        }
       }
-      if (!isExpiring(reread)) return reread;
-      return await this.refreshAndPersist(reread);
+
+      throw new Error(
+        `Xero refresh token was rejected. Re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
+      );
     }
   }
 
