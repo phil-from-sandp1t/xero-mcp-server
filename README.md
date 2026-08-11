@@ -134,6 +134,65 @@ payroll.employees
 payroll.timesheets
 ```
 
+#### 3. Refresh Token
+
+> Added in this fork.
+
+A Xero access token lasts 30 minutes, which is shorter than a typical working session, so
+`XERO_CLIENT_BEARER_TOKEN` leaves the server dead part-way through and needing a restart.
+
+This mode points the server at a token file instead. It renews the access token from the stored
+refresh token whenever the token is within 10 minutes of expiry, writes the rotated tokens back, and
+carries on — no restart, no reconnect. The check runs before every tool call, so a server left idle
+overnight still works in the morning. Use it when you authorised your app interactively
+(authorization code + PKCE) rather than through a Custom Connection.
+
+Authorise once to create the token file:
+
+```bash
+XERO_CLIENT_ID=your_client_id \
+XERO_TOKEN_FILE=~/.xero-tokens.json \
+node scripts/xero-pkce-auth.mjs
+```
+
+That opens Xero in your browser, catches the callback on `http://localhost:3333/callback` (add that
+as a redirect URI on your Xero app), and writes the token file with mode `0600`. Include
+`offline_access` in your scopes or Xero issues no refresh token; the script refuses to continue
+without it.
+
+Then configure the server:
+
+```json
+{
+  "mcpServers": {
+    "xero": {
+      "command": "npx",
+      "args": ["-y", "@xeroapi/xero-mcp-server@latest"],
+      "env": {
+        "XERO_CLIENT_ID": "your_client_id",
+        "XERO_TOKEN_FILE": "/absolute/path/to/.xero-tokens.json"
+      }
+    }
+  }
+}
+```
+
+`XERO_CLIENT_SECRET` is optional here: set it for a confidential app (sent as basic auth), leave it
+unset for a public PKCE app (the client id goes in the request body instead).
+
+Precedence between the three modes is `XERO_TOKEN_FILE`, then `XERO_CLIENT_BEARER_TOKEN`, then
+Custom Connections.
+
+##### Using it with Claude Code
+
+```bash
+claude mcp add xero -s user \
+  -e XERO_CLIENT_ID=your_client_id \
+  -e XERO_TOKEN_FILE=/absolute/path/to/.xero-tokens.json \
+  -- node /absolute/path/to/xero-mcp-server/dist/index.js
+```
+
+Re-run `scripts/xero-pkce-auth.mjs` only if the refresh token is revoked, or goes 60 days unused.
 
 ### Available MCP Commands
 

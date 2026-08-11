@@ -8,15 +8,29 @@ import {
 } from "xero-node";
 
 import { ensureError } from "../helpers/ensure-error.js";
+import {
+  applyTokenResponse,
+  isExpiring,
+  isInvalidGrant,
+  readTokenStore,
+  refreshTokenSet,
+  writeTokenStore,
+  XeroTokenStore,
+} from "./xero-token-store.js";
 
 dotenv.config();
 
 const client_id = process.env.XERO_CLIENT_ID;
 const client_secret = process.env.XERO_CLIENT_SECRET;
 const bearer_token = process.env.XERO_CLIENT_BEARER_TOKEN;
+const token_file = process.env.XERO_TOKEN_FILE;
 const grant_type = "client_credentials";
 
-if (!bearer_token && (!client_id || !client_secret)) {
+if (token_file && !client_id) {
+  throw Error("XERO_TOKEN_FILE is set but XERO_CLIENT_ID is not");
+}
+
+if (!token_file && !bearer_token && (!client_id || !client_secret)) {
   throw Error("Environment Variables not set - please check your .env file");
 }
 
@@ -220,12 +234,96 @@ class BearerTokenXeroClient extends MCPXeroClient {
   }
 }
 
-export const xeroClient = bearer_token
-  ? new BearerTokenXeroClient({
-      bearerToken: bearer_token,
-    })
-  : new CustomConnectionsXeroClient({
-      clientId: client_id!,
-      clientSecret: client_secret!,
-      grantType: grant_type,
+/**
+ * Refresh-token auth, for apps authorised interactively (authorization code +
+ * PKCE) rather than through a Custom Connection.
+ *
+ * A bearer token lasts 30 minutes, which is shorter than a working session, so
+ * XERO_CLIENT_BEARER_TOKEN alone means the server goes dead part-way through.
+ * This client instead reads a token file, and renews the access token from the
+ * stored refresh token whenever it is close to expiry. Every tool handler calls
+ * authenticate() before its request, so the check happens per call and the
+ * server stays usable indefinitely without a restart.
+ */
+class RefreshTokenXeroClient extends MCPXeroClient {
+  private readonly clientId: string;
+  private readonly clientSecret?: string;
+  private readonly tokenFile: string;
+
+  constructor(config: {
+    clientId: string;
+    clientSecret?: string;
+    tokenFile: string;
+  }) {
+    super();
+    this.clientId = config.clientId;
+    this.clientSecret = config.clientSecret;
+    this.tokenFile = config.tokenFile;
+  }
+
+  private async refreshAndPersist(store: XeroTokenStore): Promise<XeroTokenStore> {
+    const response = await refreshTokenSet({
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
+      refreshToken: store.refresh_token,
     });
+
+    const updated = applyTokenResponse(store, response);
+    writeTokenStore(this.tokenFile, updated);
+    return updated;
+  }
+
+  private async currentStore(): Promise<XeroTokenStore> {
+    // Read every time rather than trusting the cache: another process sharing
+    // this token file (a second MCP client, the bootstrap script) may have
+    // rotated the refresh token since the last call.
+    const onDisk = readTokenStore(this.tokenFile);
+
+    if (!isExpiring(onDisk)) {
+      return onDisk;
+    }
+
+    try {
+      return await this.refreshAndPersist(onDisk);
+    } catch (error) {
+      if (!isInvalidGrant(error)) throw error;
+
+      // Lost a rotation race: re-read and retry once with whoever won.
+      const reread = readTokenStore(this.tokenFile);
+      if (reread.refresh_token === onDisk.refresh_token) {
+        throw new Error(
+          `Xero refresh token was rejected. Re-authorise: node scripts/xero-pkce-auth.mjs`,
+        );
+      }
+      if (!isExpiring(reread)) return reread;
+      return await this.refreshAndPersist(reread);
+    }
+  }
+
+  async authenticate(): Promise<void> {
+    const store = await this.currentStore();
+
+    this.setTokenSet({
+      access_token: store.access_token,
+      refresh_token: store.refresh_token,
+    });
+
+    await this.updateTenants();
+  }
+}
+
+export const xeroClient = token_file
+  ? new RefreshTokenXeroClient({
+      clientId: client_id!,
+      clientSecret: client_secret,
+      tokenFile: token_file,
+    })
+  : bearer_token
+    ? new BearerTokenXeroClient({
+        bearerToken: bearer_token,
+      })
+    : new CustomConnectionsXeroClient({
+        clientId: client_id!,
+        clientSecret: client_secret!,
+        grantType: grant_type,
+      });
