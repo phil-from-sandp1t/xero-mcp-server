@@ -11,6 +11,10 @@ export interface XeroAuthStatus {
   missingScopes?: string[];
   tenantId?: string;
   organisationName?: string;
+  /** How the active organisation was chosen, when one is settled. */
+  tenantSource?: string;
+  /** Every organisation this authorisation reaches, not just the active one. */
+  availableTenants?: string[];
   error?: string;
 }
 
@@ -28,8 +32,17 @@ export function formatAuthStatus(status: XeroAuthStatus): string {
 
   if (status.ok) {
     lines.push("Status: working");
-    if (status.organisationName) lines.push(`Organisation: ${status.organisationName}`);
+    if (status.organisationName) {
+      lines.push(
+        `Organisation: ${status.organisationName}${status.tenantSource ? ` (chosen by: ${status.tenantSource})` : ""}`,
+      );
+    }
     if (status.tenantId) lines.push(`Tenant ID: ${status.tenantId}`);
+    if (status.availableTenants && status.availableTenants.length > 1) {
+      lines.push(
+        `This authorisation reaches ${status.availableTenants.length} organisations: ${status.availableTenants.join(", ")}. Calls apply to the active one above; switch with select-xero-tenant.`,
+      );
+    }
     if (status.expiresInMinutes !== undefined) {
       lines.push(`Access token expires in: ${status.expiresInMinutes} minutes`);
       if (status.mode === "refresh token") {

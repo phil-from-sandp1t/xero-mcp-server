@@ -9,6 +9,12 @@ import {
 
 import { ensureError } from "../helpers/ensure-error.js";
 import {
+  TenantResolution,
+  XeroTenantSummary,
+  explainUnresolved,
+  resolveTenant,
+} from "./tenant-selection.js";
+import {
   applyTokenResponse,
   isExpiring,
   isInvalidGrant,
@@ -32,24 +38,111 @@ if (!token_file && !bearer_token && (!client_id || !client_secret)) {
 }
 
 abstract class MCPXeroClient extends XeroClient {
-  public tenantId: string;
   private shortCode: string;
+
+  /** Settled organisation, or "" while unresolved. */
+  private resolvedTenantId = "";
+  private resolution?: TenantResolution;
+  /** Runtime choice via select-xero-tenant; outranks XERO_TENANT_ID. */
+  private selectedTenant?: string;
 
   protected constructor(config?: IXeroClientConfig) {
     super(config);
-    this.tenantId = "";
     this.shortCode = "";
   }
 
   public abstract authenticate(): Promise<void>;
 
+  /**
+   * Throws rather than returning a guess. Every handler reads this before a
+   * call, so an ambiguous connection fails with an explanation instead of
+   * quietly operating on whichever organisation Xero happened to list first.
+   */
+  public get tenantId(): string {
+    if (!this.resolvedTenantId) {
+      throw new Error(explainUnresolved(this.resolution));
+    }
+    return this.resolvedTenantId;
+  }
+
+  public set tenantId(tenantId: string) {
+    this.resolvedTenantId = tenantId;
+  }
+
+  /** Non-throwing view, for diagnostics that must report rather than fail. */
+  public get activeTenant(): XeroTenantSummary | undefined {
+    return this.resolution?.kind === "resolved" ? this.resolution.tenant : undefined;
+  }
+
+  public get tenantResolution(): TenantResolution | undefined {
+    return this.resolution;
+  }
+
+  public get tenantPreference(): string | undefined {
+    return this.selectedTenant ?? process.env.XERO_TENANT_ID;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async updateTenants(fullOrgDetails?: boolean): Promise<any[]> {
     await super.updateTenants(fullOrgDetails);
-    if (this.tenants && this.tenants.length > 0) {
-      this.tenantId = this.tenants[0].tenantId;
-    }
+    this.applyTenantPreference();
     return this.tenants;
+  }
+
+  private applyTenantPreference(): void {
+    const available: XeroTenantSummary[] = (this.tenants ?? []).map((t) => ({
+      tenantId: t.tenantId,
+      tenantName: t.tenantName,
+      tenantType: t.tenantType,
+    }));
+
+    this.resolution = resolveTenant(
+      available,
+      this.tenantPreference,
+      this.selectedTenant ? "selection" : "environment",
+    );
+
+    this.resolvedTenantId =
+      this.resolution.kind === "resolved" ? this.resolution.tenant.tenantId : "";
+  }
+
+  /** Organisations this authorisation can reach, authenticating if needed. */
+  public async listTenants(): Promise<XeroTenantSummary[]> {
+    if (!this.tenants || this.tenants.length === 0) {
+      await this.authenticate();
+    }
+    return (this.tenants ?? []).map((t) => ({
+      tenantId: t.tenantId,
+      tenantName: t.tenantName,
+      tenantType: t.tenantType,
+    }));
+  }
+
+  /**
+   * Point this server at an organisation for the rest of the process.
+   * Throws UnknownTenantError if the token cannot reach it.
+   */
+  public async selectTenant(preference: string): Promise<XeroTenantSummary> {
+    await this.listTenants();
+    const available: XeroTenantSummary[] = (this.tenants ?? []).map((t) => ({
+      tenantId: t.tenantId,
+      tenantName: t.tenantName,
+      tenantType: t.tenantType,
+    }));
+
+    // Resolve before storing, so a bad preference cannot strand the server.
+    const resolution = resolveTenant(available, preference, "selection");
+    if (resolution.kind !== "resolved") {
+      throw new Error(explainUnresolved(resolution));
+    }
+
+    this.selectedTenant = preference;
+    this.resolution = resolution;
+    this.resolvedTenantId = resolution.tenant.tenantId;
+    // The organisation changed, so a cached short code no longer applies.
+    this.shortCode = "";
+
+    return resolution.tenant;
   }
 
   private async getOrganisation(): Promise<Organisation> {

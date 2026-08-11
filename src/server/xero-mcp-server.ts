@@ -7,6 +7,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
  */
 const INSTRUCTIONS = `Xero accounting data for the connected organisation.
 
+One authorisation can cover several organisations. Where it does, this server
+will not pick one for you: calls fail with an explanation until an organisation
+is chosen, because guessing would mean writing to the wrong company's ledger and
+the result would look entirely normal. Use list-xero-tenants to see what the
+connection reaches and which is active, and select-xero-tenant to switch. A
+selection lasts for the life of the server process and applies to every caller
+using it, so confirm with the user before switching. A server may also be pinned
+with XERO_TENANT_ID, which is the safer setup when the organisation is known in
+advance.
+
 Authentication renews itself. In refresh-token mode (XERO_TOKEN_FILE) the server
 renews the access token from a stored refresh token before each call, so a token
 expiring is not a problem and never needs the user's involvement. Do not ask the
