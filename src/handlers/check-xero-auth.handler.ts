@@ -1,3 +1,4 @@
+import { FALLBACK_SCOPES } from "../auth/pkce.js";
 import { xeroClient } from "../clients/xero-client.js";
 import { readTokenStore } from "../clients/xero-token-store.js";
 import { ensureError } from "../helpers/ensure-error.js";
@@ -28,7 +29,14 @@ export async function checkXeroAuth(
     status.tokenFile = env.XERO_TOKEN_FILE;
     try {
       const store = readExpiry(env.XERO_TOKEN_FILE);
-      if (store.scope) status.scopes = store.scope.split(/\s+/);
+      if (store.scope) {
+        status.scopes = store.scope.split(/\s+/);
+        // Surface the gap here rather than leaving it to be discovered as a
+        // confusing 403 in the middle of unrelated work.
+        status.missingScopes = FALLBACK_SCOPES.split(/\s+/).filter(
+          (scope) => !status.scopes?.includes(scope),
+        );
+      }
     } catch (error) {
       status.error = ensureError(error).message;
       return status;

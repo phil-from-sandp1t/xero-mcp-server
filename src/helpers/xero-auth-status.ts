@@ -7,6 +7,8 @@ export interface XeroAuthStatus {
   /** Minutes until the stored access token expires; negative once past it. */
   expiresInMinutes?: number;
   scopes?: string[];
+  /** Scopes this server would request on a fresh setup but which were not granted. */
+  missingScopes?: string[];
   tenantId?: string;
   organisationName?: string;
   error?: string;
@@ -36,7 +38,20 @@ export function formatAuthStatus(status: XeroAuthStatus): string {
     }
     if (status.scopes?.length) {
       lines.push(`Scopes (${status.scopes.length}): ${status.scopes.join(", ")}`);
+      lines.push(
+        "Scopes were fixed when this connection was authorised. A call can fail for lack of scope (Xero: 403 / AuthorizationUnsuccessful) even though auth is working — that is a different problem from expiry, and time will not fix it.",
+      );
     }
+
+    if (status.missingScopes?.length) {
+      lines.push(
+        `Not granted (${status.missingScopes.length}): ${status.missingScopes.join(", ")}`,
+      );
+      lines.push(
+        "Calls needing those will fail until the user re-authorises. Adding them means calling reauthorize-xero with the full desired list in `scopes`, since the request replaces rather than extends the granted set — and it needs the user to sign in.",
+      );
+    }
+
     return lines.join("\n");
   }
 

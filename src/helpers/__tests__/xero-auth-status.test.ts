@@ -37,6 +37,32 @@ describe("formatAuthStatus", () => {
     expect(text).not.toContain("xero-auth");
   });
 
+  it("explains that scopes are fixed, so a scope failure is not read as expiry", () => {
+    const text = formatAuthStatus({
+      ok: true,
+      mode: "refresh token",
+      scopes: ["openid", "offline_access"],
+      missingScopes: [],
+    });
+
+    expect(text).toContain("fixed when this connection was authorised");
+    expect(text).toContain("403");
+    expect(text).not.toContain("Not granted");
+  });
+
+  it("names ungranted scopes and how to add them", () => {
+    const text = formatAuthStatus({
+      ok: true,
+      mode: "refresh token",
+      scopes: ["openid", "offline_access"],
+      missingScopes: ["accounting.reports.taxreports.read"],
+    });
+
+    expect(text).toContain("Not granted (1): accounting.reports.taxreports.read");
+    expect(text).toContain("reauthorize-xero");
+    expect(text).toContain("replaces rather than extends");
+  });
+
   it("names the fix when refresh-token auth is broken", () => {
     const text = formatAuthStatus({
       ok: false,
