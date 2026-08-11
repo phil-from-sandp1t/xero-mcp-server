@@ -59,7 +59,7 @@ export function formatAuthStatus(status: XeroAuthStatus): string {
   lines.push(`Error: ${status.error ?? "unknown"}`);
   lines.push(
     status.mode === "refresh token"
-      ? "Fix: re-authorise with `npm run auth` in the server directory (or `npx xero-auth` if installed from npm) (it inherits the client id and scopes from the token file). Nothing needs restarting afterwards."
+      ? "Fix: re-authorise with `npm run auth` in the server directory (or `npx -p @xeroapi/xero-mcp-server xero-auth` if installed from npm) (it inherits the client id and scopes from the token file). Nothing needs restarting afterwards."
       : "Fix: check the credentials in the server's environment. Consider the refresh-token mode (XERO_TOKEN_FILE), which renews itself.",
   );
   return lines.join("\n");

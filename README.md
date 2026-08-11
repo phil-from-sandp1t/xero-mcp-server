@@ -154,7 +154,7 @@ Authorise once to create the token file:
 XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
 
 # or, with the package installed from npm
-XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npx xero-auth
+XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npx -p @xeroapi/xero-mcp-server xero-auth
 ```
 
 That opens Xero in your browser, catches the callback on `http://localhost:3333/callback` (add that

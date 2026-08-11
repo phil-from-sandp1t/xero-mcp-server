@@ -75,7 +75,7 @@ const ReauthorizeXeroTool = CreateXeroTool(
   `Re-authorise this Xero connection by running the interactive login (OAuth PKCE) and replacing the stored tokens.
 Opens a browser for the user to sign in to Xero, then writes the refreshed tokens.
 Call this ONLY when the user asks to re-authorise, when check-xero-auth reports that authentication is broken, or to change the granted scopes — the server renews its own access tokens, so routine expiry needs no action.
-It returns as soon as the sign-in URL is ready; if the user has not finished signing in, call it again to collect the result.
+It returns as soon as the sign-in URL is ready, before the user has signed in; give them the URL, then call it again to collect the result.
 By default the client id and scopes are inherited from the existing token file. If it reports that no client id is on record, ask the user for it and call again with clientId.`,
   {
     waitSeconds: z
@@ -84,7 +84,7 @@ By default the client id and scopes are inherited from the existing token file. 
       .max(120)
       .optional()
       .describe(
-        "How long to wait for the sign-in to complete before replying (default 60). The flow continues in the background either way.",
+        "Seconds to wait for the sign-in to complete before replying. Defaults to 0: the sign-in URL is ready immediately, and holding the call back risks the client timing out before the user ever sees it. Raise it only if you want the call to block on a quick login.",
       ),
     openBrowser: z
       .boolean()
@@ -117,7 +117,7 @@ By default the client id and scopes are inherited from the existing token file. 
     }
 
     const result = await reauthorize({
-      waitMs: (params.waitSeconds ?? 60) * 1000,
+      waitMs: (params.waitSeconds ?? 0) * 1000,
       openBrowser: params.openBrowser,
       clientId: params.clientId,
       scopes: params.scopes,

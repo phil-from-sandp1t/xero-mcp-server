@@ -28,7 +28,7 @@ export function PromptFactory(server: McpServer) {
               "",
               "Afterwards, nothing needs restarting: the server reads the refreshed tokens on its next call. Confirm with `check-xero-auth`.",
               "",
-              "The equivalent from a terminal, if the tools are unavailable, is `npm run auth` in the server directory (or `npx xero-auth` when installed from npm), with XERO_TOKEN_FILE set to the path the server uses.",
+              "The equivalent from a terminal, if the tools are unavailable, is `npm run auth` in the server directory (or `npx -p @xeroapi/xero-mcp-server xero-auth` when installed from npm), with XERO_TOKEN_FILE set to the path the server uses.",
             ].join("\n"),
           },
         },

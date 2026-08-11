@@ -5,7 +5,7 @@ import axios, { AxiosError } from "axios";
 /**
  * On-disk token store for the refresh-token auth mode.
  *
- * Written by the PKCE bootstrap command (npx xero-auth) and then
+ * Written by the PKCE bootstrap command (npx -p @xeroapi/xero-mcp-server xero-auth) and then
  * kept current by RefreshTokenXeroClient. Xero rotates the refresh token on
  * every refresh, so the file is the single source of truth and must survive
  * each rotation.
@@ -45,7 +45,7 @@ export function readTokenStore(file: string): XeroTokenStore {
     raw = fs.readFileSync(file, "utf8");
   } catch {
     throw new Error(
-      `Xero token file not found at ${file}. Run 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
+      `Xero token file not found at ${file}. Run 'npm run auth' in the server directory (or 'npx -p @xeroapi/xero-mcp-server xero-auth' if installed from npm)`,
     );
   }
 
@@ -58,7 +58,7 @@ export function readTokenStore(file: string): XeroTokenStore {
 
   if (!parsed.refresh_token) {
     throw new Error(
-      `Xero token file at ${file} has no refresh_token. Re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
+      `Xero token file at ${file} has no refresh_token. Re-authorise with 'npm run auth' in the server directory (or 'npx -p @xeroapi/xero-mcp-server xero-auth' if installed from npm)`,
     );
   }
 
@@ -127,7 +127,7 @@ export function resolveClientId(
   const recorded = readStore(file).client_id;
   if (!recorded) {
     throw new Error(
-      `XERO_TOKEN_FILE is set but no client id is available: ${file} predates client id recording. Set XERO_CLIENT_ID, or re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
+      `XERO_TOKEN_FILE is set but no client id is available: ${file} predates client id recording. Set XERO_CLIENT_ID, or re-authorise with 'npm run auth' in the server directory (or 'npx -p @xeroapi/xero-mcp-server xero-auth' if installed from npm)`,
     );
   }
   return recorded;

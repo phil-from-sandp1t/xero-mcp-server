@@ -6,9 +6,9 @@
  * reads. Needed once when setting up, and after that only if the refresh token
  * is revoked or goes 60 days unused — the server renews itself otherwise.
  *
- *   npx xero-auth                       # inherits client id and scopes from
+ *   npx -p @xeroapi/xero-mcp-server xero-auth   # inherits client id and scopes from
  *                                       # the existing token file
- *   XERO_CLIENT_ID=... npx xero-auth    # first-time bootstrap
+ *   XERO_CLIENT_ID=... npx -p @xeroapi/xero-mcp-server xero-auth    # first-time bootstrap
  *
  * Environment:
  *   XERO_CLIENT_ID   client id, if there is no token file to inherit from

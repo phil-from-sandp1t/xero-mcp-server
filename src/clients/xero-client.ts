@@ -339,7 +339,7 @@ class RefreshTokenXeroClient extends MCPXeroClient {
       }
 
       throw new Error(
-        `Xero refresh token was rejected. Re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
+        `Xero refresh token was rejected. Re-authorise with 'npm run auth' in the server directory (or 'npx -p @xeroapi/xero-mcp-server xero-auth' if installed from npm)`,
       );
     }
   }

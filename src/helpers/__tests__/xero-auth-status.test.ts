@@ -73,7 +73,7 @@ describe("formatAuthStatus", () => {
 
     expect(text).toContain("Status: NOT working");
     expect(text).toContain("refresh token was rejected");
-    expect(text).toContain("npx xero-auth");
+    expect(text).toContain("npx -p @xeroapi/xero-mcp-server xero-auth");
   });
 
   it("points bearer-token setups at their own remedy, not at re-auth", () => {

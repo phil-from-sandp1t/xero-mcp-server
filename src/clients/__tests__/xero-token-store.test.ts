@@ -34,7 +34,7 @@ describe("readTokenStore", () => {
     const file = path.join(os.tmpdir(), "definitely-absent-tokens.json");
 
     expect(() => readTokenStore(file)).toThrow(/not found/);
-    expect(() => readTokenStore(file)).toThrow(/npx xero-auth/);
+    expect(() => readTokenStore(file)).toThrow(/npx -p @xeroapi\/xero-mcp-server xero-auth/);
   });
 
   it("rejects a store with no refresh token", () => {
@@ -137,7 +137,7 @@ describe("resolveClientId", () => {
   it("explains the fix when neither is available", () => {
     const read = () => ({ refresh_token: "r" });
 
-    expect(() => resolveClientId(undefined, "/t.json", read)).toThrow(/npx xero-auth/);
+    expect(() => resolveClientId(undefined, "/t.json", read)).toThrow(/npx -p @xeroapi\/xero-mcp-server xero-auth/);
   });
 });
 
