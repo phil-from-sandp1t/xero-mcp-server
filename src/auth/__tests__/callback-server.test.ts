@@ -131,12 +131,21 @@ describe("awaitCallback", () => {
 
 describe("browserCommand", () => {
   it("uses cmd /c start on Windows, since start is a shell built-in", () => {
-    const { command, args } = browserCommand("win32", "https://example.com");
+    const url = "https://login.xero.com/authorize?response_type=code&scope=openid+email";
+    const { command, args, options } = browserCommand("win32", url);
 
     expect(command).toBe("cmd");
     // The empty title argument matters: without it start treats the URL as the
     // window title and opens nothing.
-    expect(args).toEqual(["/c", "start", "", "https://example.com"]);
+    expect(args[0]).toBe("/c");
+    expect(args[1]).toBe("start");
+    expect(args[2]).toBe('""');
+
+    // cmd.exe reads & as a command separator, so an unquoted authorize URL is
+    // truncated at the first query parameter. Node only quotes arguments with
+    // whitespace, so the quotes are explicit and passed through verbatim.
+    expect(args[3]).toBe(`"${url}"`);
+    expect(options?.windowsVerbatimArguments).toBe(true);
   });
 
   it("uses the native opener on macOS and Linux", () => {
