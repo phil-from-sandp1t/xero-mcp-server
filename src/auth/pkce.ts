@@ -250,6 +250,15 @@ export function awaitCallback(
         res.end(html);
       };
 
+      // State is checked before anything else, including the error case. Xero
+      // echoes state on error redirects too, so a callback without it is not
+      // this flow's — and treating it as one would let a stray request ending
+      // in ?error=... cancel a login that is still in progress.
+      if (url.searchParams.get("state") !== expectedState) {
+        decline(400, "<h2>State mismatch. This is not the login in progress.</h2>");
+        return;
+      }
+
       const error = url.searchParams.get("error");
       if (error) {
         const description = url.searchParams.get("error_description") ?? "";
@@ -258,14 +267,6 @@ export function awaitCallback(
           `<h2>Authorisation failed: ${error}</h2><p>${description}</p>`,
           new Error(`Xero returned ${error}. ${description}`.trim()),
         );
-        return;
-      }
-
-      if (url.searchParams.get("state") !== expectedState) {
-        // Not this flow's callback. Turning it away must not cancel the login
-        // the user is still completing — otherwise any stray request to the
-        // port kills the flow.
-        decline(400, "<h2>State mismatch. This is not the login in progress.</h2>");
         return;
       }
 
