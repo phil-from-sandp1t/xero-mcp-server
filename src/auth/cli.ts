@@ -17,6 +17,9 @@
  *   XERO_AUTH_PORT   local callback port (default: 3333)
  */
 
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+
 import { writeTokenStore } from "../clients/xero-token-store.js";
 import { openBrowser } from "./open-browser.js";
 import {
@@ -78,13 +81,30 @@ export async function main(): Promise<void> {
   console.log("Nothing to restart — the server reads this file on its next tool call.");
 }
 
-// Only run when invoked directly. Importing this module must not start an auth
-// flow, so that tooling can inspect it without opening a browser.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === new URL(`file://${process.argv[1]}`).href;
+/**
+ * Was this module run, rather than imported?
+ *
+ * Importing it must not start an auth flow, so that tooling can inspect it
+ * without opening a browser. Comparing the raw argv path is not enough: npm
+ * installs a bin as a symlink, so `npx xero-auth` runs with argv[1] pointing at
+ * .bin/xero-auth while import.meta.url is the real file — the comparison fails
+ * and the command exits silently having done nothing. Both sides are resolved
+ * to a real path before comparing, and pathToFileURL handles paths that need
+ * escaping.
+ */
+function invokedDirectly(metaUrl: string): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
 
-if (invokedDirectly) {
+  try {
+    return pathToFileURL(fs.realpathSync(entry)).href === metaUrl;
+  } catch {
+    // argv[1] does not resolve to a file; treat as not a direct run.
+    return false;
+  }
+}
+
+if (invokedDirectly(import.meta.url)) {
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
