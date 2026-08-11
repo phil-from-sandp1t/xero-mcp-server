@@ -64,6 +64,7 @@ export async function main(): Promise<void> {
   const tokens = await exchangeCodeForTokens({
     code,
     clientId: config.clientId,
+    clientSecret: config.clientSecret,
     codeVerifier: challenge.verifier,
     port: config.port,
   });

@@ -156,6 +156,7 @@ export async function reauthorize(
         const tokens = await deps.exchangeCodeForTokens({
           code,
           clientId: config.clientId,
+          clientSecret: config.clientSecret,
           codeVerifier: challenge.verifier,
           port: config.port,
         });

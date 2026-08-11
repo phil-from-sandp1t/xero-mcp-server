@@ -7,6 +7,7 @@ import {
   FALLBACK_SCOPES,
   buildAuthorizeUrl,
   createPkceChallenge,
+  exchangeCodeForTokens,
   redirectUri,
   resolveAuthConfig,
 } from "../pkce.js";
@@ -64,10 +65,53 @@ describe("resolveAuthConfig", () => {
     ).toThrow(/offline_access/);
   });
 
+  it("takes the client secret from the environment only, never the token file", () => {
+    const withSecret = resolveAuthConfig(
+      { XERO_CLIENT_ID: "cid", XERO_CLIENT_SECRET: "shhh" },
+      "/cwd",
+      noStore,
+    );
+    expect(withSecret.clientSecret).toBe("shhh");
+
+    const publicApp = resolveAuthConfig({ XERO_CLIENT_ID: "cid" }, "/cwd", noStore);
+    expect(publicApp.clientSecret).toBeUndefined();
+  });
+
   it("defaults the token file to the working directory and resolves it absolutely", () => {
     const config = resolveAuthConfig({ XERO_CLIENT_ID: "cid" }, "/cwd", noStore);
 
     expect(config.tokenFile).toBe("/cwd/.xero-tokens.json");
+  });
+});
+
+describe("exchangeCodeForTokens", () => {
+  const base = { code: "auth-code", clientId: "cid", codeVerifier: "verifier", port: 3333 };
+
+  it("identifies a public (PKCE) app in the body, with no authorization header", async () => {
+    let seen: { body: string; headers: Record<string, string> } | undefined;
+    await exchangeCodeForTokens(base, async (body, headers) => {
+      seen = { body, headers };
+      return { access_token: "a", refresh_token: "r", expires_in: 1800 };
+    });
+
+    const params = new URLSearchParams(seen!.body);
+    expect(params.get("grant_type")).toBe("authorization_code");
+    expect(params.get("client_id")).toBe("cid");
+    expect(params.get("code_verifier")).toBe("verifier");
+    expect(params.get("redirect_uri")).toBe(redirectUri(3333));
+    expect(seen!.headers.Authorization).toBeUndefined();
+  });
+
+  it("sends a confidential app's secret as basic auth, never in the body", async () => {
+    let seen: { body: string; headers: Record<string, string> } | undefined;
+    await exchangeCodeForTokens({ ...base, clientSecret: "shhh" }, async (body, headers) => {
+      seen = { body, headers };
+      return { access_token: "a", refresh_token: "r", expires_in: 1800 };
+    });
+
+    expect(seen!.headers.Authorization).toBe(`Basic ${Buffer.from("cid:shhh").toString("base64")}`);
+    expect(new URLSearchParams(seen!.body).get("client_id")).toBeNull();
+    expect(seen!.body).not.toContain("shhh");
   });
 });
 

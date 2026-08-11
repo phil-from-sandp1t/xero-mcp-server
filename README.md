@@ -183,6 +183,10 @@ npm run auth
 With no token file at all, the command needs `XERO_CLIENT_ID` once (from the Xero developer portal,
 under your app's configuration) and falls back to a granular default scope set.
 
+For a **confidential** app, also set `XERO_CLIENT_SECRET`: it is sent as basic auth on both the
+authorization-code exchange and every later refresh, never in a request body, and never written to
+the token file. A public PKCE app leaves it unset.
+
 Then configure the server:
 
 ```json

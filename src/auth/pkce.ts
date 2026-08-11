@@ -2,16 +2,16 @@ import crypto from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 
-import axios from "axios";
-
 import {
+  TokenPoster,
   XeroTokenResponse,
   XeroTokenStore,
+  applyClientAuth,
+  postTokenRequest,
   readTokenStore,
 } from "../clients/xero-token-store.js";
 
 const AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
-const TOKEN_ENDPOINT = "https://identity.xero.com/connect/token";
 
 /**
  * Scopes used only when there is nothing better to go on — no existing token
@@ -62,6 +62,8 @@ export class MissingClientIdError extends Error {
 
 export interface AuthConfig {
   clientId: string;
+  /** Present only for a confidential app; absent for a public PKCE app. */
+  clientSecret?: string;
   scopes: string;
   tokenFile: string;
   port: number;
@@ -69,8 +71,14 @@ export interface AuthConfig {
   sources: { clientId: string; scopes: string };
 }
 
+/**
+ * Environment this flow reads. Every field is optional, so `NodeJS.ProcessEnv`
+ * satisfies it directly via its index signature — passing `process.env` needs
+ * no cast.
+ */
 export interface AuthEnv {
   XERO_CLIENT_ID?: string;
+  XERO_CLIENT_SECRET?: string;
   XERO_SCOPES?: string;
   XERO_TOKEN_FILE?: string;
   XERO_AUTH_PORT?: string;
@@ -117,6 +125,8 @@ export function resolveAuthConfig(
 
   return {
     clientId,
+    // Never inherited from the token file: a secret is not stored there.
+    clientSecret: env.XERO_CLIENT_SECRET,
     scopes,
     tokenFile,
     port: Number(env.XERO_AUTH_PORT || DEFAULT_AUTH_PORT),
@@ -165,28 +175,32 @@ export function redirectUri(port: number): string {
   return `http://localhost:${port}/callback`;
 }
 
-export async function exchangeCodeForTokens(args: {
-  code: string;
-  clientId: string;
-  codeVerifier: string;
-  port: number;
-}): Promise<XeroTokenResponse> {
-  const body = new URLSearchParams({
+export async function exchangeCodeForTokens(
+  args: {
+    code: string;
+    clientId: string;
+    /** Set for a confidential app; sent as basic auth, never in the body. */
+    clientSecret?: string;
+    codeVerifier: string;
+    port: number;
+  },
+  post: TokenPoster = postTokenRequest,
+): Promise<XeroTokenResponse> {
+  const params = new URLSearchParams({
     grant_type: "authorization_code",
     code: args.code,
     redirect_uri: redirectUri(args.port),
-    client_id: args.clientId,
     code_verifier: args.codeVerifier,
-  }).toString();
-
-  const response = await axios.post(TOKEN_ENDPOINT, body, {
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
   });
 
-  return response.data as XeroTokenResponse;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    Accept: "application/json",
+  };
+
+  applyClientAuth(params, headers, args.clientId, args.clientSecret);
+
+  return post(params.toString(), headers);
 }
 
 export interface CallbackResult {

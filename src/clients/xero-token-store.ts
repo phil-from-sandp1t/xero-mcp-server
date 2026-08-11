@@ -126,10 +126,31 @@ export type TokenPoster = (
   headers: Record<string, string>,
 ) => Promise<XeroTokenResponse>;
 
-const defaultPoster: TokenPoster = async (body, headers) => {
+export const postTokenRequest: TokenPoster = async (body, headers) => {
   const response = await axios.post(TOKEN_ENDPOINT, body, { headers });
   return response.data as XeroTokenResponse;
 };
+
+/**
+ * Present the client on a token request. A confidential app authenticates with
+ * basic auth; a public (PKCE) app has no secret and identifies itself in the
+ * body. Shared between the authorization-code exchange and the refresh so the
+ * two cannot drift apart — a confidential app that works for one must work for
+ * the other.
+ */
+export function applyClientAuth(
+  params: URLSearchParams,
+  headers: Record<string, string>,
+  clientId: string,
+  clientSecret?: string,
+): void {
+  if (clientSecret) {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    headers.Authorization = `Basic ${credentials}`;
+  } else {
+    params.set("client_id", clientId);
+  }
+}
 
 export async function refreshTokenSet(
   args: {
@@ -137,7 +158,7 @@ export async function refreshTokenSet(
     clientSecret?: string;
     refreshToken: string;
   },
-  post: TokenPoster = defaultPoster,
+  post: TokenPoster = postTokenRequest,
 ): Promise<XeroTokenResponse> {
   const params = new URLSearchParams({
     grant_type: "refresh_token",
@@ -149,16 +170,7 @@ export async function refreshTokenSet(
     Accept: "application/json",
   };
 
-  if (args.clientSecret) {
-    // Confidential client: credentials belong in the Authorization header.
-    const credentials = Buffer.from(
-      `${args.clientId}:${args.clientSecret}`,
-    ).toString("base64");
-    headers.Authorization = `Basic ${credentials}`;
-  } else {
-    // Public (PKCE) client: no secret exists, so client_id goes in the body.
-    params.set("client_id", args.clientId);
-  }
+  applyClientAuth(params, headers, args.clientId, args.clientSecret);
 
   try {
     return await post(params.toString(), headers);
