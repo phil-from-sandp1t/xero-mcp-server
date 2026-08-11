@@ -134,6 +134,140 @@ payroll.employees
 payroll.timesheets
 ```
 
+#### 3. Refresh Token
+
+> Added in this fork.
+
+A Xero access token lasts 30 minutes, which is shorter than a typical working session, so
+`XERO_CLIENT_BEARER_TOKEN` leaves the server dead part-way through and needing a restart.
+
+This mode points the server at a token file instead. It renews the access token from the stored
+refresh token whenever the token is within 10 minutes of expiry, writes the rotated tokens back, and
+carries on — no restart, no reconnect. The check runs before every tool call, so a server left idle
+overnight still works in the morning. Use it when you authorised your app interactively
+(authorization code + PKCE) rather than through a Custom Connection.
+
+Authorise once to create the token file:
+
+```bash
+# from a clone of this repo
+XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
+
+# or, with the package installed from npm
+XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npx -p @xeroapi/xero-mcp-server xero-auth
+```
+
+That opens Xero in your browser, catches the callback on `http://localhost:3333/callback` (add that
+as a redirect URI on your Xero app), and writes the token file with mode `0600`. Include
+`offline_access` in your scopes or Xero issues no refresh token; the command refuses to continue
+without it.
+
+To re-authorise later, the same command needs no other arguments:
+
+```bash
+XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
+```
+
+It inherits the client id and the exact scope list from the existing token file, so re-authorising
+reproduces the access you already had rather than silently substituting defaults.
+
+That cuts both ways: **inheritance cannot widen access.** To add a scope, name the full list you
+want — the existing one plus the addition — because the request replaces rather than extends:
+
+```bash
+XERO_TOKEN_FILE=~/.xero-tokens.json \
+XERO_SCOPES="openid profile email offline_access accounting.settings accounting.reports.taxreports.read" \
+npm run auth
+```
+
+With no token file at all, the command needs `XERO_CLIENT_ID` once (from the Xero developer portal,
+under your app's configuration) and falls back to a granular default scope set.
+
+For a **confidential** app, also set `XERO_CLIENT_SECRET`: it is sent as basic auth on both the
+authorization-code exchange and every later refresh, never in a request body, and never written to
+the token file. A public PKCE app leaves it unset.
+
+Then configure the server:
+
+```json
+{
+  "mcpServers": {
+    "xero": {
+      "command": "npx",
+      "args": ["-y", "@xeroapi/xero-mcp-server@latest"],
+      "env": {
+        "XERO_TOKEN_FILE": "/absolute/path/to/.xero-tokens.json"
+      }
+    }
+  }
+}
+```
+
+`XERO_CLIENT_ID` is optional: the token file records the client id it was authorised with, so the
+server reads it from there. Set it only to override, or if the token file predates that recording.
+
+`XERO_CLIENT_SECRET` is also optional: set it for a confidential app (sent as basic auth), leave it
+unset for a public PKCE app (the client id goes in the request body instead).
+
+Precedence between the three modes is `XERO_TOKEN_FILE`, then `XERO_CLIENT_BEARER_TOKEN`, then
+Custom Connections.
+
+##### Using it with Claude Code
+
+```bash
+claude mcp add xero -s user \
+  -e XERO_TOKEN_FILE=/absolute/path/to/.xero-tokens.json \
+  -- node /absolute/path/to/xero-mcp-server/dist/index.js
+```
+
+Re-authorise only if the refresh token is revoked, or goes 60 days unused.
+
+##### Working with more than one organisation
+
+> Added in this fork.
+
+A single Xero authorisation can cover several organisations — the user picks which ones to grant
+during consent, and one refresh token then reaches them all.
+
+Upstream resolves this by taking the first connection Xero returns. Xero does not promise an order,
+so with more than one organisation that is a coin toss between ledgers, and a write landing in the
+wrong company looks entirely normal in the response.
+
+This fork refuses to guess. With one organisation, nothing changes and it is used automatically.
+With several, calls fail with an explanation until an organisation is chosen:
+
+- **`XERO_TENANT_ID`** — pin a server to one organisation, by name or tenant id. Best when the
+  organisation is known in advance: run one server per organisation (`xero-acme`, `xero-widgets`)
+  and there is nothing to get wrong at call time.
+- **`list-xero-tenants` tool** — show which organisations the connection reaches, and which is
+  active.
+- **`select-xero-tenant` tool** — switch at runtime, by name or tenant id. The choice lasts for the
+  life of the server process and applies to every caller using it, so it is the weaker option when
+  several sessions share one server.
+
+A preference naming an organisation the token cannot reach is an error, never a fallback: being
+handed one organisation after asking for another is exactly the failure this prevents.
+
+Xero does not require organisation names to be unique. Where a name matches more than one reachable
+organisation it is rejected rather than resolved by position, and the tenant id is required —
+otherwise name matching would quietly reintroduce the arbitrary choice this is meant to remove.
+
+##### Checking and repairing auth
+
+These ship with the server, so nothing has to be installed client-side:
+
+- **`check-xero-auth` tool** — reports the auth mode, connected organisation, remaining token life
+  and granted scopes. An agent that hits an authentication error can call this and diagnose itself
+  instead of handing the problem back to you.
+- **`reauthorize-xero` tool** — runs the interactive login and replaces the stored tokens, without
+  anyone touching a terminal. It returns as soon as the sign-in URL is ready rather than blocking
+  for as long as a person takes to log in; call it again afterwards to collect the result. Client
+  id and scopes are inherited from the existing token file, so re-authorising cannot change the
+  access granted.
+- **`reauthorize` prompt** — the same flow as a user-invoked command where clients support prompts
+  (in Claude Code, `/mcp__<servername>__reauthorize`). Prompts are a separate surface from tools:
+  they appear in a command or composer menu, never in the tool list. The prompt only drives the
+  tools above, so nothing depends on a client exposing it.
 
 ### Available MCP Commands
 

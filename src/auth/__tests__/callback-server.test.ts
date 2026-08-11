@@ -1,0 +1,186 @@
+import http from "node:http";
+import net from "node:net";
+
+import { describe, expect, it } from "vitest";
+
+import { CALLBACK_HOST, awaitCallback } from "../pkce.js";
+import { browserCommand } from "../open-browser.js";
+
+/** A free port, so tests never collide with a real auth flow on 3333. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", reject);
+    srv.listen(0, CALLBACK_HOST, () => {
+      const { port } = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+function get(port: number, path: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ host: CALLBACK_HOST, port, path }, (res) => {
+      let body = "";
+      res.on("data", (c) => (body += c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on("error", reject);
+  });
+}
+
+/** Yield a tick so the server is listening before the first request. */
+const listening = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("awaitCallback", () => {
+  it("resolves with the code from a matching callback", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    const res = await get(port, "/callback?state=state-1&code=the-code");
+
+    expect(res.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "the-code" });
+  });
+
+  it("survives a state mismatch instead of cancelling the login in progress", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    // A stray or hostile request must not end the user's flow.
+    const rejected = await get(port, "/callback?state=wrong&code=attacker-code");
+    expect(rejected.status).toBe(400);
+
+    // The listener is still up, and the genuine callback still works.
+    const accepted = await get(port, "/callback?state=state-1&code=real-code");
+    expect(accepted.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "real-code" });
+  });
+
+  it("keeps waiting when a callback carries no code", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    expect((await get(port, "/callback?state=state-1")).status).toBe(400);
+    expect((await get(port, "/callback?state=state-1&code=eventually")).status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "eventually" });
+  });
+
+  it("rejects when Xero itself reports an error, which does end the flow", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    // Attach the rejection handler before provoking it, or the rejection is
+    // briefly unhandled and Node reports it.
+    const rejects = expect(pending).rejects.toThrow(/access_denied/);
+    await listening();
+
+    // With the correct state: Xero echoes it on error redirects, so this is
+    // genuinely this flow's outcome.
+    const res = await get(port, "/callback?state=state-1&error=access_denied&error_description=nope");
+
+    expect(res.status).toBe(400);
+    await rejects;
+  });
+
+  it("does not let an error callback with the wrong state cancel the flow", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    // Xero echoes state on error redirects, so one without it is not this
+    // flow's — and must not be able to abort a login still in progress.
+    const stray = await get(port, "/callback?error=access_denied&state=wrong");
+    expect(stray.status).toBe(400);
+
+    const accepted = await get(port, "/callback?state=state-1&code=real-code");
+    expect(accepted.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "real-code" });
+  });
+
+  it("ignores paths other than the redirect URI", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    expect((await get(port, "/")).status).toBe(404);
+
+    await get(port, "/callback?state=state-1&code=done");
+    await expect(pending).resolves.toEqual({ code: "done" });
+  });
+
+  it("binds loopback only, so the listener is not reachable from the network", async () => {
+    const port = await freePort();
+    let bound: (net.AddressInfo | string | null)[] | undefined;
+    const pending = awaitCallback(port, "state-1", (addresses) => {
+      bound = addresses;
+    });
+    await listening();
+
+    // Assert the addresses actually bound. Probing by binding the wildcard
+    // address instead would be a platform test, not a behaviour one: BSD lets
+    // 0.0.0.0 coexist with a bound 127.0.0.1, Linux does not.
+    expect(bound?.length).toBeGreaterThan(0);
+    for (const address of bound ?? []) {
+      expect(["127.0.0.1", "::1"]).toContain((address as net.AddressInfo).address);
+    }
+
+    await get(port, "/callback?state=state-1&code=cleanup");
+    await pending;
+  });
+
+  it("accepts the callback over IPv6 loopback, which is where localhost may resolve", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    // The redirect URI says localhost; on an IPv6-preferring machine the
+    // browser arrives on ::1, so a v4-only listener would never see it.
+    const res = await new Promise<number>((resolve, reject) => {
+      const req = http.get(
+        { host: "::1", port, path: "/callback?state=state-1&code=v6-code" },
+        (r) => {
+          r.resume();
+          resolve(r.statusCode ?? 0);
+        },
+      );
+      req.on("error", reject);
+    });
+
+    expect(res).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "v6-code" });
+  });
+});
+
+describe("browserCommand", () => {
+  it("uses cmd /c start on Windows, since start is a shell built-in", () => {
+    const url = "https://login.xero.com/authorize?response_type=code&scope=openid+email";
+    const { command, args, options } = browserCommand("win32", url);
+
+    expect(command).toBe("cmd");
+    // The empty title argument matters: without it start treats the URL as the
+    // window title and opens nothing.
+    expect(args[0]).toBe("/c");
+    expect(args[1]).toBe("start");
+    expect(args[2]).toBe('""');
+
+    // cmd.exe reads & as a command separator, so an unquoted authorize URL is
+    // truncated at the first query parameter. Node only quotes arguments with
+    // whitespace, so the quotes are explicit and passed through verbatim.
+    expect(args[3]).toBe(`"${url}"`);
+    expect(options?.windowsVerbatimArguments).toBe(true);
+  });
+
+  it("uses the native opener on macOS and Linux", () => {
+    expect(browserCommand("darwin", "https://example.com")).toEqual({
+      command: "open",
+      args: ["https://example.com"],
+    });
+    expect(browserCommand("linux", "https://example.com")).toEqual({
+      command: "xdg-open",
+      args: ["https://example.com"],
+    });
+  });
+});
