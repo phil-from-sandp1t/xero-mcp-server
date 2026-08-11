@@ -209,14 +209,20 @@ Re-authorise only if the refresh token is revoked, or goes 60 days unused.
 
 ##### Checking and repairing auth
 
-Two things ship with the server for this, so nothing has to be installed client-side:
+These ship with the server, so nothing has to be installed client-side:
 
 - **`check-xero-auth` tool** — reports the auth mode, connected organisation, remaining token life
   and granted scopes. An agent that hits an authentication error can call this and diagnose itself
   instead of handing the problem back to you.
-- **`reauthorize` prompt** — MCP clients surface prompts as commands; in Claude Code it appears as
-  `/mcp__<servername>__reauthorize` (so `/mcp__xero__reauthorize` for the config above). It checks
-  auth first and stops if it is healthy, rather than re-authorising reflexively.
+- **`reauthorize-xero` tool** — runs the interactive login and replaces the stored tokens, without
+  anyone touching a terminal. It returns as soon as the sign-in URL is ready rather than blocking
+  for as long as a person takes to log in; call it again afterwards to collect the result. Client
+  id and scopes are inherited from the existing token file, so re-authorising cannot change the
+  access granted.
+- **`reauthorize` prompt** — the same flow as a user-invoked command where clients support prompts
+  (in Claude Code, `/mcp__<servername>__reauthorize`). Prompts are a separate surface from tools:
+  they appear in a command or composer menu, never in the tool list. The prompt only drives the
+  tools above, so nothing depends on a client exposing it.
 
 ### Available MCP Commands
 
