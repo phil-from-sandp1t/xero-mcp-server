@@ -55,6 +55,9 @@ export async function checkXeroAuth(
 
     const active = xeroClient.activeTenant;
     if (!active) {
+      // The credentials work — the target does not. Kept distinct so the
+      // remedy offered is selecting an organisation, not re-authorising.
+      status.needsTenantSelection = true;
       status.error = explainUnresolved(xeroClient.tenantResolution);
       return status;
     }

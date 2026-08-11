@@ -45,6 +45,14 @@ abstract class MCPXeroClient extends XeroClient {
   private resolution?: TenantResolution;
   /** Runtime choice via select-xero-tenant; outranks XERO_TENANT_ID. */
   private selectedTenant?: string;
+  /**
+   * Organisations this connection reaches.
+   *
+   * Held here rather than read from the base class's `tenants`, because
+   * custom connections never populate that: they read /connections directly
+   * and would otherwise have no tenant list to list from or select against.
+   */
+  private knownTenants: XeroTenantSummary[] = [];
 
   protected constructor(config?: IXeroClientConfig) {
     super(config);
@@ -85,19 +93,29 @@ abstract class MCPXeroClient extends XeroClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async updateTenants(fullOrgDetails?: boolean): Promise<any[]> {
     await super.updateTenants(fullOrgDetails);
-    this.applyTenantPreference();
+    this.setKnownTenants(this.tenants ?? []);
     return this.tenants;
   }
 
-  private applyTenantPreference(): void {
-    const available: XeroTenantSummary[] = (this.tenants ?? []).map((t) => ({
+  /**
+   * Record the reachable organisations and re-apply any preference.
+   * Called from both auth paths, since only one of them goes through
+   * updateTenants().
+   */
+  protected setKnownTenants(
+    tenants: { tenantId: string; tenantName?: string; tenantType?: string }[],
+  ): void {
+    this.knownTenants = tenants.map((t) => ({
       tenantId: t.tenantId,
       tenantName: t.tenantName,
       tenantType: t.tenantType,
     }));
+    this.applyTenantPreference();
+  }
 
+  private applyTenantPreference(): void {
     this.resolution = resolveTenant(
-      available,
+      this.knownTenants,
       this.tenantPreference,
       this.selectedTenant ? "selection" : "environment",
     );
@@ -108,14 +126,10 @@ abstract class MCPXeroClient extends XeroClient {
 
   /** Organisations this authorisation can reach, authenticating if needed. */
   public async listTenants(): Promise<XeroTenantSummary[]> {
-    if (!this.tenants || this.tenants.length === 0) {
+    if (this.knownTenants.length === 0) {
       await this.authenticate();
     }
-    return (this.tenants ?? []).map((t) => ({
-      tenantId: t.tenantId,
-      tenantName: t.tenantName,
-      tenantType: t.tenantType,
-    }));
+    return [...this.knownTenants];
   }
 
   /**
@@ -123,12 +137,7 @@ abstract class MCPXeroClient extends XeroClient {
    * Throws UnknownTenantError if the token cannot reach it.
    */
   public async selectTenant(preference: string): Promise<XeroTenantSummary> {
-    await this.listTenants();
-    const available: XeroTenantSummary[] = (this.tenants ?? []).map((t) => ({
-      tenantId: t.tenantId,
-      tenantName: t.tenantName,
-      tenantType: t.tenantType,
-    }));
+    const available = await this.listTenants();
 
     // Resolve before storing, so a bad preference cannot strand the server.
     const resolution = resolveTenant(available, preference, "selection");
@@ -289,9 +298,11 @@ class CustomConnectionsXeroClient extends MCPXeroClient {
       },
     );
 
-    if (connectionsResponse.data && connectionsResponse.data.length > 0) {
-      this.tenantId = connectionsResponse.data[0].tenantId;
-    }
+    // Custom connections never go through updateTenants(), so this is the only
+    // place their organisations become known. Record them all and apply the
+    // preference, rather than taking the first — otherwise tenant listing and
+    // selection are dead in this mode, and XERO_TENANT_ID is ignored.
+    this.setKnownTenants(connectionsResponse.data ?? []);
 
     return response.data;
   }

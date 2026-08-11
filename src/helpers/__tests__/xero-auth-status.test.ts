@@ -63,6 +63,25 @@ describe("formatAuthStatus", () => {
     expect(text).toContain("replaces rather than extends");
   });
 
+  it("treats an unselected organisation as a selection problem, not an auth failure", () => {
+    const text = formatAuthStatus({
+      ok: false,
+      mode: "refresh token",
+      needsTenantSelection: true,
+      availableTenants: ["ACTIV-8 Management Pte Ltd", "DTCD Company Pte Ltd"],
+      expiresInMinutes: 24,
+      error: "This Xero authorisation reaches 2 organisations, so the target is ambiguous.",
+    });
+
+    expect(text).toContain("authenticated, but no organisation selected");
+    expect(text).toContain("select-xero-tenant");
+    expect(text).toContain("XERO_TENANT_ID");
+    expect(text).toContain("ACTIV-8 Management Pte Ltd, DTCD Company Pte Ltd");
+    // Re-authorising cannot fix this, so it must not be offered as the remedy.
+    expect(text).not.toContain("npm run auth");
+    expect(text).not.toContain("Status: NOT working");
+  });
+
   it("names the fix when refresh-token auth is broken", () => {
     const text = formatAuthStatus({
       ok: false,

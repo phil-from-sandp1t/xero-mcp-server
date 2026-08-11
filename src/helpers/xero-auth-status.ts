@@ -15,6 +15,11 @@ export interface XeroAuthStatus {
   tenantSource?: string;
   /** Every organisation this authorisation reaches, not just the active one. */
   availableTenants?: string[];
+  /**
+   * Authentication works, but no organisation is settled. A distinct state
+   * from failure: re-authorising cannot fix it, and would be the wrong advice.
+   */
+  needsTenantSelection?: boolean;
   error?: string;
 }
 
@@ -65,6 +70,23 @@ export function formatAuthStatus(status: XeroAuthStatus): string {
       );
     }
 
+    return lines.join("\n");
+  }
+
+  if (status.needsTenantSelection) {
+    // Authentication is fine; only the target is missing. Sending someone to
+    // re-authorise here wastes a browser login and does not fix anything.
+    lines.push("Status: authenticated, but no organisation selected");
+    if (status.expiresInMinutes !== undefined) {
+      lines.push(`Access token expires in: ${status.expiresInMinutes} minutes`);
+    }
+    if (status.availableTenants?.length) {
+      lines.push(`Organisations available: ${status.availableTenants.join(", ")}`);
+    }
+    lines.push(status.error ?? "No organisation is settled.");
+    lines.push(
+      "Do not re-authorise for this — the credentials are valid. Choose an organisation with select-xero-tenant, or pin the server with XERO_TENANT_ID.",
+    );
     return lines.join("\n");
   }
 
