@@ -143,13 +143,67 @@ describe("reauthorize", () => {
     expect(deps.written).toHaveLength(0);
   });
 
+  it("asks for a client id rather than failing, when none is on record", async () => {
+    const awaitCallback = vi.fn();
+    const deps = makeDeps({ awaitCallback: awaitCallback as unknown as ReauthorizeDeps["awaitCallback"] });
+
+    const result = await reauthorize({ waitMs: 5 }, { XERO_TOKEN_FILE: "/tmp/absent.json" }, "/cwd", deps);
+
+    expect(result.state).toBe("needs client id");
+    expect(result.error).toMatch(/developer portal/);
+    expect(awaitCallback).not.toHaveBeenCalled();
+  });
+
+  it("accepts a client id supplied by the caller after asking the user", async () => {
+    const deps = makeDeps();
+
+    const result = await reauthorize(
+      { waitMs: 1000, clientId: "asked-the-user", scopes: "openid offline_access" },
+      { XERO_TOKEN_FILE: "/tmp/absent.json" },
+      "/cwd",
+      deps,
+    );
+
+    expect(result.state).toBe("authorized");
+    const { store } = deps.written[0] as { store: Record<string, unknown> };
+    expect(store.client_id).toBe("asked-the-user");
+  });
+
+  it("uses an explicit scope list, which is the only way to widen access", async () => {
+    const deps = makeDeps();
+    const widened = "openid offline_access accounting.settings accounting.reports.taxreports.read";
+
+    const result = await reauthorize(
+      { waitMs: 5, scopes: widened, openBrowser: false },
+      { ...ENV, XERO_SCOPES: undefined },
+      "/cwd",
+      makeDeps({
+        awaitCallback: (_p, _s, onListening) => {
+          onListening();
+          return new Promise(() => {});
+        },
+      }),
+    );
+
+    expect(result.state).toBe("waiting");
+    expect(new URL(result.authorizeUrl!).searchParams.get("scope")).toBe(widened);
+    expect(deps.written).toHaveLength(0);
+  });
+
   it("surfaces a configuration problem without starting a listener", async () => {
     const awaitCallback = vi.fn();
     const deps = makeDeps({ awaitCallback: awaitCallback as unknown as ReauthorizeDeps["awaitCallback"] });
 
-    const result = await reauthorize({ waitMs: 5 }, { XERO_TOKEN_FILE: "/tmp/nope.json" }, "/cwd", deps);
+    // Scopes without offline_access would yield a token that cannot be renewed.
+    const result = await reauthorize(
+      { waitMs: 5, scopes: "openid accounting.settings" },
+      ENV,
+      "/cwd",
+      deps,
+    );
 
     expect(result.state).toBe("error");
+    expect(result.error).toMatch(/offline_access/);
     expect(awaitCallback).not.toHaveBeenCalled();
   });
 });

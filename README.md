@@ -169,8 +169,19 @@ XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
 ```
 
 It inherits the client id and the exact scope list from the existing token file, so re-authorising
-reproduces the access you already had rather than silently substituting defaults. Set
-`XERO_CLIENT_ID` or `XERO_SCOPES` only to override that deliberately.
+reproduces the access you already had rather than silently substituting defaults.
+
+That cuts both ways: **inheritance cannot widen access.** To add a scope, name the full list you
+want — the existing one plus the addition — because the request replaces rather than extends:
+
+```bash
+XERO_TOKEN_FILE=~/.xero-tokens.json \
+XERO_SCOPES="openid profile email offline_access accounting.settings accounting.reports.taxreports.read" \
+npm run auth
+```
+
+With no token file at all, the command needs `XERO_CLIENT_ID` once (from the Xero developer portal,
+under your app's configuration) and falls back to a granular default scope set.
 
 Then configure the server:
 

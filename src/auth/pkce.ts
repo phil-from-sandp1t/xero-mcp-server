@@ -17,19 +17,48 @@ const TOKEN_ENDPOINT = "https://identity.xero.com/connect/token";
  * Scopes used only when there is nothing better to go on — no existing token
  * file and no XERO_SCOPES. Any established setup inherits its own scopes
  * instead, so re-authorising cannot silently narrow or widen access.
+ *
+ * Granular scopes throughout: `accounting.transactions` and
+ * `accounting.reports.read` are deprecated in favour of these. No payroll
+ * scopes — the Xero Payroll API covers AU, UK and NZ only, so they are dead
+ * weight for everyone else; request them explicitly via XERO_SCOPES if needed.
  */
 export const FALLBACK_SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
-  "accounting.transactions",
+  // accounting.invoices also covers credit notes, quotes, purchase orders,
+  // repeating invoices, linked transactions and items.
+  "accounting.invoices",
+  "accounting.invoices.read",
+  "accounting.payments",
+  "accounting.payments.read",
+  "accounting.banktransactions",
+  "accounting.banktransactions.read",
+  "accounting.manualjournals",
+  "accounting.reports.balancesheet.read",
+  "accounting.reports.profitandloss.read",
+  "accounting.reports.trialbalance.read",
+  "accounting.reports.aged.read",
+  "accounting.reports.taxreports.read",
   "accounting.contacts",
   "accounting.settings",
-  "accounting.reports.read",
 ].join(" ");
 
 export const DEFAULT_AUTH_PORT = 3333;
+
+/**
+ * Raised when the flow cannot proceed without a client id the caller must
+ * obtain from the user. Distinct from other config errors so a tool can tell
+ * "ask the user a question" apart from "something is broken".
+ */
+export class MissingClientIdError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingClientIdError";
+  }
+}
 
 export interface AuthConfig {
   clientId: string;
@@ -74,8 +103,8 @@ export function resolveAuthConfig(
 
   const clientId = env.XERO_CLIENT_ID || existing?.client_id;
   if (!clientId) {
-    throw new Error(
-      `XERO_CLIENT_ID is not set, and no client id is recorded in ${tokenFile}.`,
+    throw new MissingClientIdError(
+      `No Xero client id available: XERO_CLIENT_ID is not set and none is recorded in ${tokenFile}. Ask the user for their Xero app's client id — they can find it in the Xero developer portal (my apps, then the app's configuration) — and supply it as the clientId argument or XERO_CLIENT_ID.`,
     );
   }
 

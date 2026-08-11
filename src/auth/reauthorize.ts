@@ -3,6 +3,7 @@ import { ensureError } from "../helpers/ensure-error.js";
 import { openBrowser as defaultOpenBrowser } from "./open-browser.js";
 import {
   AuthEnv,
+  MissingClientIdError,
   awaitCallback,
   buildAuthorizeUrl,
   createPkceChallenge,
@@ -11,7 +12,11 @@ import {
   resolveAuthConfig,
 } from "./pkce.js";
 
-export type ReauthorizationState = "authorized" | "waiting" | "error";
+export type ReauthorizationState =
+  | "authorized"
+  | "waiting"
+  | "error"
+  | "needs client id";
 
 export interface ReauthorizationResult {
   state: ReauthorizationState;
@@ -84,12 +89,26 @@ function describePending(flow: PendingFlow): ReauthorizationResult {
  * the listener up — the flow keeps running, and the next call collects it.
  */
 export async function reauthorize(
-  options: { waitMs?: number; openBrowser?: boolean } = {},
+  options: {
+    waitMs?: number;
+    openBrowser?: boolean;
+    /** Supplied by the caller after asking the user, when none is on record. */
+    clientId?: string;
+    /** Explicit scope list. Required to widen access: inheritance alone would
+     *  reproduce whatever the existing token file already has. */
+    scopes?: string;
+  } = {},
   env: AuthEnv = process.env,
   cwd: string = process.cwd(),
   deps: ReauthorizeDeps = defaultDeps,
 ): Promise<ReauthorizationResult> {
   const waitMs = options.waitMs ?? 60_000;
+
+  const effectiveEnv: AuthEnv = {
+    ...env,
+    ...(options.clientId ? { XERO_CLIENT_ID: options.clientId } : {}),
+    ...(options.scopes ? { XERO_SCOPES: options.scopes } : {}),
+  };
 
   const alreadySettled = pending?.settled;
   if (pending && alreadySettled) {
@@ -108,9 +127,13 @@ export async function reauthorize(
   if (!pending) {
     let config;
     try {
-      config = resolveAuthConfig(env, cwd);
+      config = resolveAuthConfig(effectiveEnv, cwd);
     } catch (error) {
-      return { state: "error", error: ensureError(error).message };
+      const err = ensureError(error);
+      return {
+        state: err instanceof MissingClientIdError ? "needs client id" : "error",
+        error: err.message,
+      };
     }
 
     const challenge = createPkceChallenge();
