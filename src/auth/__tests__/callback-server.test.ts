@@ -96,18 +96,16 @@ describe("awaitCallback", () => {
 
   it("binds loopback only, so the listener is not reachable from the network", async () => {
     const port = await freePort();
-    const pending = awaitCallback(port, "state-1", () => {});
+    let bound: net.AddressInfo | string | null | undefined;
+    const pending = awaitCallback(port, "state-1", (address) => {
+      bound = address;
+    });
     await listening();
 
-    // Anything bound to 0.0.0.0 would still be free on a non-loopback address;
-    // if this port is genuinely loopback-only, that bind succeeds.
-    const probe = net.createServer();
-    const boundElsewhere = await new Promise<boolean>((resolve) => {
-      probe.once("error", () => resolve(false));
-      probe.listen(port, "0.0.0.0", () => probe.close(() => resolve(true)));
-    });
-
-    expect(boundElsewhere).toBe(true);
+    // Assert the address actually bound. Probing by binding the wildcard
+    // address instead would be a platform test, not a behaviour one: BSD lets
+    // 0.0.0.0 coexist with a bound 127.0.0.1, Linux does not.
+    expect(bound).toMatchObject({ address: CALLBACK_HOST });
 
     await get(port, "/callback?state=state-1&code=cleanup");
     await pending;

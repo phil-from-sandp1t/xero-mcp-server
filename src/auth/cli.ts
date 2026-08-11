@@ -17,9 +17,8 @@
  *   XERO_AUTH_PORT   local callback port (default: 3333)
  */
 
-import { execFile } from "node:child_process";
-
 import { writeTokenStore } from "../clients/xero-token-store.js";
+import { openBrowser } from "./open-browser.js";
 import {
   awaitCallback,
   buildAuthorizeUrl,
@@ -28,19 +27,6 @@ import {
   redirectUri,
   resolveAuthConfig,
 } from "./pkce.js";
-
-function openBrowser(url: string): void {
-  const opener =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
-
-  execFile(opener, [url], (err) => {
-    if (err) console.log(`\nOpen this URL in your browser:\n${url}\n`);
-  });
-}
 
 export async function main(): Promise<void> {
   const config = resolveAuthConfig(process.env, process.cwd());
