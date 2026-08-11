@@ -209,9 +209,16 @@ export interface CallbackResult {
   code: string;
 }
 
+/** Loopback only: this listener exists for one browser redirect on this machine. */
+export const CALLBACK_HOST = "127.0.0.1";
+
 /**
  * Serve the redirect URI until Xero calls back, then hand over the code.
  * Resolves once, and always closes the listener.
+ *
+ * Bound to loopback so the temporary OAuth endpoint is not reachable from the
+ * network — on a shared machine an exposed listener is an invitation to feed
+ * this flow someone else's authorisation code.
  */
 export function awaitCallback(
   port: number,
@@ -220,7 +227,7 @@ export function awaitCallback(
 ): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      const url = new URL(req.url ?? "/", `http://${CALLBACK_HOST}:${port}`);
 
       if (url.pathname !== "/callback") {
         res.writeHead(404);
@@ -235,6 +242,12 @@ export function awaitCallback(
         if (err) reject(err);
       };
 
+      /** Reject one request without ending the wait for the real callback. */
+      const decline = (status: number, html: string) => {
+        res.writeHead(status, { "Content-Type": "text/html" });
+        res.end(html);
+      };
+
       const error = url.searchParams.get("error");
       if (error) {
         const description = url.searchParams.get("error_description") ?? "";
@@ -247,21 +260,16 @@ export function awaitCallback(
       }
 
       if (url.searchParams.get("state") !== expectedState) {
-        finish(
-          400,
-          "<h2>State mismatch. Possible CSRF. Try again.</h2>",
-          new Error("State mismatch between request and callback."),
-        );
+        // Not this flow's callback. Turning it away must not cancel the login
+        // the user is still completing — otherwise any stray request to the
+        // port kills the flow.
+        decline(400, "<h2>State mismatch. This is not the login in progress.</h2>");
         return;
       }
 
       const code = url.searchParams.get("code");
       if (!code) {
-        finish(
-          400,
-          "<h2>No authorisation code in callback.</h2>",
-          new Error("Callback carried no authorisation code."),
-        );
+        decline(400, "<h2>No authorisation code in callback.</h2>");
         return;
       }
 
@@ -278,6 +286,6 @@ export function awaitCallback(
     });
 
     server.on("error", reject);
-    server.listen(port, onListening);
+    server.listen(port, CALLBACK_HOST, onListening);
   });
 }
