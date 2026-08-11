@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AmbiguousTenantNameError,
   UnknownTenantError,
   describeTenants,
   explainUnresolved,
@@ -54,6 +55,36 @@ describe("resolveTenant", () => {
   it("names the reachable organisations when rejecting", () => {
     expect(() => resolveTenant([ACTIV8, DTCD], "nope")).toThrow(/ACTIV-8 Management Pte Ltd/);
     expect(() => resolveTenant([ACTIV8, DTCD], "nope")).toThrow(/id-dtcd/);
+  });
+
+  it("refuses a name that matches several organisations, since names are not unique", () => {
+    const twin = { tenantId: "id-twin", tenantName: "ACTIV-8 Management Pte Ltd" };
+
+    // Resolving by position here would be the exact wrong-ledger risk this
+    // module exists to remove.
+    expect(() => resolveTenant([ACTIV8, twin, DTCD], "ACTIV-8 Management Pte Ltd")).toThrow(
+      AmbiguousTenantNameError,
+    );
+    expect(() => resolveTenant([ACTIV8, twin], "activ-8 management pte ltd")).toThrow(
+      /use the tenant id/,
+    );
+  });
+
+  it("still resolves by tenant id when names collide", () => {
+    const twin = { tenantId: "id-twin", tenantName: "ACTIV-8 Management Pte Ltd" };
+
+    expect(resolveTenant([ACTIV8, twin], "id-twin")).toMatchObject({
+      kind: "resolved",
+      tenant: twin,
+    });
+  });
+
+  it("names both candidates when refusing a duplicate", () => {
+    const twin = { tenantId: "id-twin", tenantName: "ACTIV-8 Management Pte Ltd" };
+    const attempt = () => resolveTenant([ACTIV8, twin], "ACTIV-8 Management Pte Ltd");
+
+    expect(attempt).toThrow(/id-activ8/);
+    expect(attempt).toThrow(/id-twin/);
   });
 
   it("reports an authorisation that reaches nothing", () => {

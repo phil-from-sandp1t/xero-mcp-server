@@ -248,6 +248,10 @@ With several, calls fail with an explanation until an organisation is chosen:
 A preference naming an organisation the token cannot reach is an error, never a fallback: being
 handed one organisation after asking for another is exactly the failure this prevents.
 
+Xero does not require organisation names to be unique. Where a name matches more than one reachable
+organisation it is rejected rather than resolved by position, and the tenant id is required —
+otherwise name matching would quietly reintroduce the arbitrary choice this is meant to remove.
+
 ##### Checking and repairing auth
 
 These ship with the server, so nothing has to be installed client-side:

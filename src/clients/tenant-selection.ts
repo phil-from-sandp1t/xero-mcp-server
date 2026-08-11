@@ -33,6 +33,21 @@ export class UnknownTenantError extends Error {
   }
 }
 
+/**
+ * Raised when a name matches more than one organisation. Xero does not require
+ * organisation names to be unique, so a duplicate name is not a rare edge case
+ * — and resolving it by position would be exactly the arbitrary choice this
+ * module exists to prevent.
+ */
+export class AmbiguousTenantNameError extends Error {
+  constructor(preference: string, matches: XeroTenantSummary[]) {
+    super(
+      `"${preference}" matches ${matches.length} Xero organisations: ${describeTenants(matches)}. Names are not unique, so use the tenant id instead.`,
+    );
+    this.name = "AmbiguousTenantNameError";
+  }
+}
+
 export function describeTenants(tenants: XeroTenantSummary[]): string {
   if (tenants.length === 0) return "(none)";
   return tenants
@@ -55,14 +70,20 @@ export function resolveTenant(
 
   const wanted = preference?.trim();
   if (wanted) {
-    const match =
-      tenants.find((t) => t.tenantId === wanted) ??
-      tenants.find(
-        (t) => t.tenantName?.toLowerCase() === wanted.toLowerCase(),
-      );
+    // Tenant ids are unique, so an id match is always unambiguous.
+    const byId = tenants.find((t) => t.tenantId === wanted);
+    if (byId) return { kind: "resolved", tenant: byId, source };
 
-    if (!match) throw new UnknownTenantError(wanted, tenants);
-    return { kind: "resolved", tenant: match, source };
+    // Names are not unique. Take every match rather than the first, so a
+    // duplicate is refused instead of silently resolved by position.
+    const byName = tenants.filter(
+      (t) => t.tenantName?.toLowerCase() === wanted.toLowerCase(),
+    );
+
+    if (byName.length > 1) throw new AmbiguousTenantNameError(wanted, byName);
+    if (byName.length === 1) return { kind: "resolved", tenant: byName[0], source };
+
+    throw new UnknownTenantError(wanted, tenants);
   }
 
   if (tenants.length === 1) {
