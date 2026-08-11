@@ -24,7 +24,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:fix": "eslint --fix",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "auth": "npm run build && node dist/auth/cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.23.4",

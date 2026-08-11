@@ -291,7 +291,7 @@ class RefreshTokenXeroClient extends MCPXeroClient {
       const reread = readTokenStore(this.tokenFile);
       if (reread.refresh_token === onDisk.refresh_token) {
         throw new Error(
-          `Xero refresh token was rejected. Re-authorise: npx xero-auth`,
+          `Xero refresh token was rejected. Re-authorise with 'npm run auth' in the server directory (or 'npx xero-auth' if installed from npm)`,
         );
       }
       if (!isExpiring(reread)) return reread;

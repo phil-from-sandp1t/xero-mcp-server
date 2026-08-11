@@ -150,6 +150,10 @@ overnight still works in the morning. Use it when you authorised your app intera
 Authorise once to create the token file:
 
 ```bash
+# from a clone of this repo
+XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
+
+# or, with the package installed from npm
 XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npx xero-auth
 ```
 
@@ -158,10 +162,10 @@ as a redirect URI on your Xero app), and writes the token file with mode `0600`.
 `offline_access` in your scopes or Xero issues no refresh token; the command refuses to continue
 without it.
 
-To re-authorise later, the same command needs no arguments:
+To re-authorise later, the same command needs no other arguments:
 
 ```bash
-XERO_TOKEN_FILE=~/.xero-tokens.json npx xero-auth
+XERO_TOKEN_FILE=~/.xero-tokens.json npm run auth
 ```
 
 It inherits the client id and the exact scope list from the existing token file, so re-authorising
