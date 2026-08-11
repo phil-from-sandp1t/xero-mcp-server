@@ -381,31 +381,42 @@ class BearerTokenXeroClient extends MCPXeroClient {
  * server stays usable indefinitely without a restart.
  */
 class RefreshTokenXeroClient extends MCPXeroClient {
-  private readonly clientId: string;
+  /**
+   * From the environment only, and optional: the token file records the client
+   * id it was authorised with. Resolved when a token is actually needed rather
+   * than at construction, so a missing or older token file cannot stop the
+   * server starting — the tools that diagnose and repair that state have to be
+   * reachable while it is broken.
+   */
+  private readonly envClientId?: string;
   private readonly clientSecret?: string;
   private readonly tokenFile: string;
 
   constructor(config: {
-    clientId: string;
+    clientId?: string;
     clientSecret?: string;
     tokenFile: string;
   }) {
     super();
-    this.clientId = config.clientId;
+    this.envClientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this.tokenFile = config.tokenFile;
   }
 
   private async refreshAndPersist(store: XeroTokenStore): Promise<XeroTokenStore> {
+    // Resolve now, from the store already in hand — no second file read, and
+    // the failure surfaces as a tool error rather than a dead server.
+    const clientId = resolveClientId(this.envClientId, this.tokenFile, () => store);
+
     const response = await refreshTokenSet({
-      clientId: this.clientId,
+      clientId,
       clientSecret: this.clientSecret,
       refreshToken: store.refresh_token,
     });
 
     // Stamp the client id if the file predates it, so re-authorisation can
     // inherit it instead of asking for it again.
-    const updated = { ...applyTokenResponse(store, response), client_id: this.clientId };
+    const updated = { ...applyTokenResponse(store, response), client_id: clientId };
     writeTokenStore(this.tokenFile, updated);
     return updated;
   }
@@ -453,7 +464,7 @@ export const xeroClient = token_file
   ? new RefreshTokenXeroClient({
       // Falls back to the client id recorded in the token file, so a server can
       // be configured with XERO_TOKEN_FILE alone.
-      clientId: resolveClientId(client_id, token_file),
+      clientId: client_id,
       clientSecret: client_secret,
       tokenFile: token_file,
     })
