@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { reauthorize, ReauthorizationResult } from "../../auth/reauthorize.js";
+import { xeroClient } from "../../clients/xero-client.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
 
 export function formatReauthorization(result: ReauthorizationResult): string {
@@ -95,6 +96,12 @@ By default the client id and scopes are inherited from the existing token file. 
       clientId: params.clientId,
       scopes: params.scopes,
     });
+
+    if (result.state === "authorized") {
+      // The new grant may cover a different set of organisations, and this
+      // flow promises no restart — so what is known about them must go.
+      xeroClient.invalidateTenants();
+    }
 
     return {
       content: [{ type: "text" as const, text: formatReauthorization(result) }],

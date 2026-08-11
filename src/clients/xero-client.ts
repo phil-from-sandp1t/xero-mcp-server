@@ -134,12 +134,26 @@ abstract class MCPXeroClient extends XeroClient {
       this.resolution.kind === "resolved" ? this.resolution.tenant.tenantId : "";
   }
 
-  /** Organisations this authorisation can reach, authenticating if needed. */
+  /**
+   * Organisations this authorisation can reach, re-read from Xero.
+   *
+   * Deliberately not cached: re-authorising can add or remove granted
+   * organisations without restarting the server, so a cached list would report
+   * access that no longer exists — or hide access that now does.
+   */
   public async listTenants(): Promise<XeroTenantSummary[]> {
-    if (this.knownTenants.length === 0) {
-      await this.authenticate();
-    }
+    await this.authenticate();
     return [...this.knownTenants];
+  }
+
+  /**
+   * Drop what is known about organisations, so the next call re-reads them.
+   * Called after re-authorisation, where the granted set may have changed.
+   */
+  public invalidateTenants(): void {
+    this.knownTenants = [];
+    this.resolution = undefined;
+    this.resolvedTenantId = "";
   }
 
   /**
