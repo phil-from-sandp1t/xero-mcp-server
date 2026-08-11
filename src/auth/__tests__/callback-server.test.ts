@@ -77,10 +77,27 @@ describe("awaitCallback", () => {
     const rejects = expect(pending).rejects.toThrow(/access_denied/);
     await listening();
 
-    const res = await get(port, "/callback?error=access_denied&error_description=nope");
+    // With the correct state: Xero echoes it on error redirects, so this is
+    // genuinely this flow's outcome.
+    const res = await get(port, "/callback?state=state-1&error=access_denied&error_description=nope");
 
     expect(res.status).toBe(400);
     await rejects;
+  });
+
+  it("does not let an error callback with the wrong state cancel the flow", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    // Xero echoes state on error redirects, so one without it is not this
+    // flow's — and must not be able to abort a login still in progress.
+    const stray = await get(port, "/callback?error=access_denied&state=wrong");
+    expect(stray.status).toBe(400);
+
+    const accepted = await get(port, "/callback?state=state-1&code=real-code");
+    expect(accepted.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "real-code" });
   });
 
   it("ignores paths other than the redirect URI", async () => {

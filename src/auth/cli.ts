@@ -43,6 +43,10 @@ export async function main(): Promise<void> {
   const { code } = await awaitCallback(config.port, challenge.state, () => {
     console.log(`\nListening on ${redirectUri(config.port)}`);
     console.log("Opening Xero login in your browser...");
+    // Always print it. The launcher cannot report failure usefully — and on a
+    // headless or locked-down machine it silently does nothing, leaving the
+    // command waiting for a callback the user has no way to trigger.
+    console.log(`\nIf no browser opens, visit this URL to sign in:\n${authorizeUrl}\n`);
     openBrowser(authorizeUrl);
   });
 
