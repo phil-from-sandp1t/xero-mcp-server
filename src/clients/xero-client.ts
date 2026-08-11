@@ -154,6 +154,17 @@ abstract class MCPXeroClient extends XeroClient {
     this.knownTenants = [];
     this.resolution = undefined;
     this.resolvedTenantId = "";
+    this.clearOrganisationScopedState();
+  }
+
+  /**
+   * Anything cached about the *current* organisation, cleared whenever the
+   * active organisation can change. Keeping this in one place is the point:
+   * the short code is used to build Xero deep links, and a stale one sends
+   * people to a different company's records while every other value is right.
+   */
+  private clearOrganisationScopedState(): void {
+    this.shortCode = "";
   }
 
   /**
@@ -172,8 +183,7 @@ abstract class MCPXeroClient extends XeroClient {
     this.selectedTenant = preference;
     this.resolution = resolution;
     this.resolvedTenantId = resolution.tenant.tenantId;
-    // The organisation changed, so a cached short code no longer applies.
-    this.shortCode = "";
+    this.clearOrganisationScopedState();
 
     return resolution.tenant;
   }
