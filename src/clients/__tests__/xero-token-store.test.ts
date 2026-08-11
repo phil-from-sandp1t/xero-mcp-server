@@ -10,6 +10,7 @@ import {
   isInvalidGrant,
   readTokenStore,
   refreshTokenSet,
+  resolveClientId,
   writeTokenStore,
   XeroTokenRefreshError,
 } from "../xero-token-store.js";
@@ -33,7 +34,7 @@ describe("readTokenStore", () => {
     const file = path.join(os.tmpdir(), "definitely-absent-tokens.json");
 
     expect(() => readTokenStore(file)).toThrow(/not found/);
-    expect(() => readTokenStore(file)).toThrow(/xero-pkce-auth/);
+    expect(() => readTokenStore(file)).toThrow(/npx xero-auth/);
   });
 
   it("rejects a store with no refresh token", () => {
@@ -103,6 +104,26 @@ describe("applyTokenResponse", () => {
 
     expect(next.refresh_token).toBe("r1");
     expect(next.scope).toBe("s1");
+  });
+});
+
+describe("resolveClientId", () => {
+  it("prefers the environment", () => {
+    const read = () => ({ refresh_token: "r", client_id: "from-file" });
+
+    expect(resolveClientId("from-env", "/t.json", read)).toBe("from-env");
+  });
+
+  it("falls back to the id recorded in the token file", () => {
+    const read = () => ({ refresh_token: "r", client_id: "from-file" });
+
+    expect(resolveClientId(undefined, "/t.json", read)).toBe("from-file");
+  });
+
+  it("explains the fix when neither is available", () => {
+    const read = () => ({ refresh_token: "r" });
+
+    expect(() => resolveClientId(undefined, "/t.json", read)).toThrow(/npx xero-auth/);
   });
 });
 

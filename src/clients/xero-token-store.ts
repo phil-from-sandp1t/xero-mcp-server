@@ -5,7 +5,7 @@ import axios, { AxiosError } from "axios";
 /**
  * On-disk token store for the refresh-token auth mode.
  *
- * Written by the PKCE bootstrap script (scripts/xero-pkce-auth.mjs) and then
+ * Written by the PKCE bootstrap command (npx xero-auth) and then
  * kept current by RefreshTokenXeroClient. Xero rotates the refresh token on
  * every refresh, so the file is the single source of truth and must survive
  * each rotation.
@@ -17,6 +17,12 @@ export interface XeroTokenStore {
   expires_at?: number;
   scope?: string;
   saved_at?: string;
+  /**
+   * Client id these tokens were issued to. Recorded so re-authorisation can
+   * reuse it instead of asking for it again — and so it cannot silently drift
+   * from the client id the server authenticates with.
+   */
+  client_id?: string;
 }
 
 export interface XeroTokenResponse {
@@ -39,7 +45,7 @@ export function readTokenStore(file: string): XeroTokenStore {
     raw = fs.readFileSync(file, "utf8");
   } catch {
     throw new Error(
-      `Xero token file not found at ${file}. Run the PKCE bootstrap: node scripts/xero-pkce-auth.mjs`,
+      `Xero token file not found at ${file}. Run: npx xero-auth`,
     );
   }
 
@@ -52,7 +58,7 @@ export function readTokenStore(file: string): XeroTokenStore {
 
   if (!parsed.refresh_token) {
     throw new Error(
-      `Xero token file at ${file} has no refresh_token. Re-run the PKCE bootstrap: node scripts/xero-pkce-auth.mjs`,
+      `Xero token file at ${file} has no refresh_token. Re-run: npx xero-auth`,
     );
   }
 
@@ -88,7 +94,30 @@ export function applyTokenResponse(
     expires_at: now + response.expires_in * 1000,
     scope: response.scope ?? previous.scope,
     saved_at: new Date(now).toISOString(),
+    client_id: previous.client_id,
   };
+}
+
+/**
+ * Client id to authenticate the token file with: the environment if set,
+ * otherwise the one recorded in the file when it was authorised. Lets a
+ * configured server carry only XERO_TOKEN_FILE, and makes a mismatch between
+ * the two impossible to introduce by accident.
+ */
+export function resolveClientId(
+  envClientId: string | undefined,
+  file: string,
+  readStore: (file: string) => XeroTokenStore = readTokenStore,
+): string {
+  if (envClientId) return envClientId;
+
+  const recorded = readStore(file).client_id;
+  if (!recorded) {
+    throw new Error(
+      `XERO_TOKEN_FILE is set but no client id is available: ${file} predates client id recording. Set XERO_CLIENT_ID, or re-authorise with: npx xero-auth`,
+    );
+  }
+  return recorded;
 }
 
 /** Injectable so the refresh path can be tested without network access. */

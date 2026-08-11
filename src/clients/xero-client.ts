@@ -14,6 +14,7 @@ import {
   isInvalidGrant,
   readTokenStore,
   refreshTokenSet,
+  resolveClientId,
   writeTokenStore,
   XeroTokenStore,
 } from "./xero-token-store.js";
@@ -25,10 +26,6 @@ const client_secret = process.env.XERO_CLIENT_SECRET;
 const bearer_token = process.env.XERO_CLIENT_BEARER_TOKEN;
 const token_file = process.env.XERO_TOKEN_FILE;
 const grant_type = "client_credentials";
-
-if (token_file && !client_id) {
-  throw Error("XERO_TOKEN_FILE is set but XERO_CLIENT_ID is not");
-}
 
 if (!token_file && !bearer_token && (!client_id || !client_secret)) {
   throw Error("Environment Variables not set - please check your .env file");
@@ -268,7 +265,9 @@ class RefreshTokenXeroClient extends MCPXeroClient {
       refreshToken: store.refresh_token,
     });
 
-    const updated = applyTokenResponse(store, response);
+    // Stamp the client id if the file predates it, so re-authorisation can
+    // inherit it instead of asking for it again.
+    const updated = { ...applyTokenResponse(store, response), client_id: this.clientId };
     writeTokenStore(this.tokenFile, updated);
     return updated;
   }
@@ -292,7 +291,7 @@ class RefreshTokenXeroClient extends MCPXeroClient {
       const reread = readTokenStore(this.tokenFile);
       if (reread.refresh_token === onDisk.refresh_token) {
         throw new Error(
-          `Xero refresh token was rejected. Re-authorise: node scripts/xero-pkce-auth.mjs`,
+          `Xero refresh token was rejected. Re-authorise: npx xero-auth`,
         );
       }
       if (!isExpiring(reread)) return reread;
@@ -314,7 +313,9 @@ class RefreshTokenXeroClient extends MCPXeroClient {
 
 export const xeroClient = token_file
   ? new RefreshTokenXeroClient({
-      clientId: client_id!,
+      // Falls back to the client id recorded in the token file, so a server can
+      // be configured with XERO_TOKEN_FILE alone.
+      clientId: resolveClientId(client_id, token_file),
       clientSecret: client_secret,
       tokenFile: token_file,
     })

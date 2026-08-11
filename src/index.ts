@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { PromptFactory } from "./prompts/prompt-factory.js";
 import { XeroMcpServer } from "./server/xero-mcp-server.js";
 import { ToolFactory } from "./tools/tool-factory.js";
 
@@ -9,6 +10,7 @@ const main = async () => {
   const server = XeroMcpServer.GetServer();
 
   ToolFactory(server);
+  PromptFactory(server);
 
   // Start receiving messages on stdin and sending messages on stdout
   const transport = new StdioServerTransport();

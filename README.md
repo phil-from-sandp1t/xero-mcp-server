@@ -150,15 +150,23 @@ overnight still works in the morning. Use it when you authorised your app intera
 Authorise once to create the token file:
 
 ```bash
-XERO_CLIENT_ID=your_client_id \
-XERO_TOKEN_FILE=~/.xero-tokens.json \
-node scripts/xero-pkce-auth.mjs
+XERO_CLIENT_ID=your_client_id XERO_TOKEN_FILE=~/.xero-tokens.json npx xero-auth
 ```
 
 That opens Xero in your browser, catches the callback on `http://localhost:3333/callback` (add that
 as a redirect URI on your Xero app), and writes the token file with mode `0600`. Include
-`offline_access` in your scopes or Xero issues no refresh token; the script refuses to continue
+`offline_access` in your scopes or Xero issues no refresh token; the command refuses to continue
 without it.
+
+To re-authorise later, the same command needs no arguments:
+
+```bash
+XERO_TOKEN_FILE=~/.xero-tokens.json npx xero-auth
+```
+
+It inherits the client id and the exact scope list from the existing token file, so re-authorising
+reproduces the access you already had rather than silently substituting defaults. Set
+`XERO_CLIENT_ID` or `XERO_SCOPES` only to override that deliberately.
 
 Then configure the server:
 
@@ -169,7 +177,6 @@ Then configure the server:
       "command": "npx",
       "args": ["-y", "@xeroapi/xero-mcp-server@latest"],
       "env": {
-        "XERO_CLIENT_ID": "your_client_id",
         "XERO_TOKEN_FILE": "/absolute/path/to/.xero-tokens.json"
       }
     }
@@ -177,7 +184,10 @@ Then configure the server:
 }
 ```
 
-`XERO_CLIENT_SECRET` is optional here: set it for a confidential app (sent as basic auth), leave it
+`XERO_CLIENT_ID` is optional: the token file records the client id it was authorised with, so the
+server reads it from there. Set it only to override, or if the token file predates that recording.
+
+`XERO_CLIENT_SECRET` is also optional: set it for a confidential app (sent as basic auth), leave it
 unset for a public PKCE app (the client id goes in the request body instead).
 
 Precedence between the three modes is `XERO_TOKEN_FILE`, then `XERO_CLIENT_BEARER_TOKEN`, then
@@ -187,12 +197,22 @@ Custom Connections.
 
 ```bash
 claude mcp add xero -s user \
-  -e XERO_CLIENT_ID=your_client_id \
   -e XERO_TOKEN_FILE=/absolute/path/to/.xero-tokens.json \
   -- node /absolute/path/to/xero-mcp-server/dist/index.js
 ```
 
-Re-run `scripts/xero-pkce-auth.mjs` only if the refresh token is revoked, or goes 60 days unused.
+Re-authorise only if the refresh token is revoked, or goes 60 days unused.
+
+##### Checking and repairing auth
+
+Two things ship with the server for this, so nothing has to be installed client-side:
+
+- **`check-xero-auth` tool** — reports the auth mode, connected organisation, remaining token life
+  and granted scopes. An agent that hits an authentication error can call this and diagnose itself
+  instead of handing the problem back to you.
+- **`reauthorize` prompt** — MCP clients surface prompts as commands; in Claude Code it appears as
+  `/mcp__<servername>__reauthorize` (so `/mcp__xero__reauthorize` for the config above). It checks
+  auth first and stops if it is healthy, rather than re-authorising reflexively.
 
 ### Available MCP Commands
 
