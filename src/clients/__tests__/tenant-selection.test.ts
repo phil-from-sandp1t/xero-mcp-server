@@ -110,6 +110,17 @@ describe("explainUnresolved", () => {
     expect(text).toContain("Refusing to guess");
   });
 
+  it("explains a bad preference and points at the tool that lists valid ones", () => {
+    const text = explainUnresolved({
+      kind: "preference-error",
+      message: 'No Xero organisation matches "Ghost Ltd".',
+    });
+
+    expect(text).toContain("Ghost Ltd");
+    expect(text).toContain("list-xero-tenants");
+    expect(text).toContain("XERO_TENANT_ID");
+  });
+
   it("explains an authorisation with no organisations", () => {
     expect(explainUnresolved({ kind: "none" })).toMatch(/reaches no organisations/);
   });

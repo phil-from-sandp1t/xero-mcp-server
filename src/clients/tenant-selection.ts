@@ -19,7 +19,14 @@ export type TenantResolution =
   /** Several organisations and nothing to choose between them. */
   | { kind: "ambiguous"; tenants: XeroTenantSummary[] }
   /** The authorisation reaches no organisations at all. */
-  | { kind: "none" };
+  | { kind: "none" }
+  /**
+   * A configured preference that cannot be honoured — unreachable, or a name
+   * matching several organisations. Carried rather than thrown at
+   * authentication time so that listing the organisations still works: the
+   * tool that shows the valid options must not be disabled by a bad option.
+   */
+  | { kind: "preference-error"; message: string };
 
 export type TenantSource = "selection" | "environment" | "only organisation";
 
@@ -104,6 +111,10 @@ export function explainUnresolved(resolution: TenantResolution | undefined): str
 
   if (resolution.kind === "none") {
     return "This Xero authorisation reaches no organisations. Re-authorise and grant access to at least one, then try again.";
+  }
+
+  if (resolution.kind === "preference-error") {
+    return `${resolution.message} Correct XERO_TENANT_ID, or choose with the select-xero-tenant tool. list-xero-tenants shows the valid options.`;
   }
 
   if (resolution.kind === "ambiguous") {

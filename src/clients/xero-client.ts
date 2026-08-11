@@ -114,11 +114,21 @@ abstract class MCPXeroClient extends XeroClient {
   }
 
   private applyTenantPreference(): void {
-    this.resolution = resolveTenant(
-      this.knownTenants,
-      this.tenantPreference,
-      this.selectedTenant ? "selection" : "environment",
-    );
+    try {
+      this.resolution = resolveTenant(
+        this.knownTenants,
+        this.tenantPreference,
+        this.selectedTenant ? "selection" : "environment",
+      );
+    } catch (error) {
+      // A bad preference must not break authentication itself — otherwise
+      // list-xero-tenants, the tool that shows the valid options, is disabled
+      // by the very setting the user needs to correct.
+      this.resolution = {
+        kind: "preference-error",
+        message: ensureError(error).message,
+      };
+    }
 
     this.resolvedTenantId =
       this.resolution.kind === "resolved" ? this.resolution.tenant.tenantId : "";

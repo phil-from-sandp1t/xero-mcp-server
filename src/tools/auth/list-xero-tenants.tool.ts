@@ -1,3 +1,4 @@
+import { explainUnresolved } from "../../clients/tenant-selection.js";
 import { xeroClient } from "../../clients/xero-client.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
 
@@ -27,10 +28,10 @@ One authorisation may cover several organisations. Use this to see which are ava
     });
 
     if (!active) {
-      lines.push(
-        "",
-        "No organisation is active: with more than one reachable, the target must be chosen explicitly. Calls will fail until you select one with select-xero-tenant, or the server is pinned with XERO_TENANT_ID.",
-      );
+      // Report the actual reason — ambiguity and a bad preference are different
+      // problems with different fixes, and guessing between them here would
+      // send the reader after the wrong one.
+      lines.push("", "No organisation is active.", explainUnresolved(xeroClient.tenantResolution));
     }
 
     return {
