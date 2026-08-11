@@ -72,9 +72,10 @@ export interface AuthConfig {
 }
 
 /**
- * Environment this flow reads. Every field is optional, so `NodeJS.ProcessEnv`
- * satisfies it directly via its index signature — passing `process.env` needs
- * no cast.
+ * Environment this flow reads. The named members document what is consulted;
+ * the index signature models the rest of an environment, and makes the
+ * relationship to `NodeJS.ProcessEnv` (which is `Dict<string>`) explicit rather
+ * than merely structural, so `process.env` is assignable with no cast.
  */
 export interface AuthEnv {
   XERO_CLIENT_ID?: string;
@@ -82,6 +83,7 @@ export interface AuthEnv {
   XERO_SCOPES?: string;
   XERO_TOKEN_FILE?: string;
   XERO_AUTH_PORT?: string;
+  [key: string]: string | undefined;
 }
 
 /**
