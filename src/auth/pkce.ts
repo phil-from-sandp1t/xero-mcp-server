@@ -214,8 +214,19 @@ export interface CallbackResult {
 export const CALLBACK_HOST = "127.0.0.1";
 
 /**
+ * Both loopback addresses.
+ *
+ * The redirect URI advertises `localhost`, which a Xero app registers verbatim
+ * and cannot be changed here without breaking every existing registration. On
+ * a machine where localhost resolves to ::1 first, a listener bound only to
+ * 127.0.0.1 never receives the callback and the login hangs. Binding both
+ * keeps the URI as registered while still refusing anything off-machine.
+ */
+const CALLBACK_HOSTS = [CALLBACK_HOST, "::1"];
+
+/**
  * Serve the redirect URI until Xero calls back, then hand over the code.
- * Resolves once, and always closes the listener.
+ * Resolves once, and always closes the listeners.
  *
  * Bound to loopback so the temporary OAuth endpoint is not reachable from the
  * network — on a shared machine an exposed listener is an invitation to feed
@@ -224,11 +235,14 @@ export const CALLBACK_HOST = "127.0.0.1";
 export function awaitCallback(
   port: number,
   expectedState: string,
-  /** Receives the bound address, so callers can confirm what was exposed. */
-  onListening: (address?: AddressInfo | string | null) => void,
+  /** Receives the bound addresses, so callers can confirm what was exposed. */
+  onListening: (addresses?: (AddressInfo | string | null)[]) => void,
 ): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
+    const servers: http.Server[] = [];
+    const closeAll = () => servers.forEach((s) => s.close());
+
+    const handle: http.RequestListener = (req, res) => {
       const url = new URL(req.url ?? "/", `http://${CALLBACK_HOST}:${port}`);
 
       if (url.pathname !== "/callback") {
@@ -240,7 +254,7 @@ export function awaitCallback(
       const finish = (status: number, html: string, err?: Error) => {
         res.writeHead(status, { "Content-Type": "text/html" });
         res.end(html);
-        server.close();
+        closeAll();
         if (err) reject(err);
       };
 
@@ -284,11 +298,39 @@ export function awaitCallback(
           <p style="color:#888;font-size:12px">You can close this tab.</p>
         </body></html>
       `);
-      server.close();
+      closeAll();
       resolve({ code });
-    });
+    };
 
-    server.on("error", reject);
-    server.listen(port, CALLBACK_HOST, () => onListening(server.address()));
+    let pending = CALLBACK_HOSTS.length;
+    const bound: (AddressInfo | string | null)[] = [];
+    const failures: Error[] = [];
+
+    const settleListening = () => {
+      if (--pending > 0) return;
+      if (bound.length === 0) {
+        // Nothing bound at all: there is no way to receive the callback.
+        reject(failures[0] ?? new Error("Could not bind the callback listener."));
+        return;
+      }
+      onListening(bound);
+    };
+
+    for (const host of CALLBACK_HOSTS) {
+      const server = http.createServer(handle);
+      servers.push(server);
+
+      server.on("error", (err) => {
+        // One stack may be unavailable (IPv6 disabled, for instance). That is
+        // survivable as long as the other bound; only total failure is fatal.
+        failures.push(err);
+        settleListening();
+      });
+
+      server.listen(port, host, () => {
+        bound.push(server.address());
+        settleListening();
+      });
+    }
   });
 }

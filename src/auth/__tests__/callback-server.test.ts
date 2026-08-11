@@ -113,19 +113,44 @@ describe("awaitCallback", () => {
 
   it("binds loopback only, so the listener is not reachable from the network", async () => {
     const port = await freePort();
-    let bound: net.AddressInfo | string | null | undefined;
-    const pending = awaitCallback(port, "state-1", (address) => {
-      bound = address;
+    let bound: (net.AddressInfo | string | null)[] | undefined;
+    const pending = awaitCallback(port, "state-1", (addresses) => {
+      bound = addresses;
     });
     await listening();
 
-    // Assert the address actually bound. Probing by binding the wildcard
+    // Assert the addresses actually bound. Probing by binding the wildcard
     // address instead would be a platform test, not a behaviour one: BSD lets
     // 0.0.0.0 coexist with a bound 127.0.0.1, Linux does not.
-    expect(bound).toMatchObject({ address: CALLBACK_HOST });
+    expect(bound?.length).toBeGreaterThan(0);
+    for (const address of bound ?? []) {
+      expect(["127.0.0.1", "::1"]).toContain((address as net.AddressInfo).address);
+    }
 
     await get(port, "/callback?state=state-1&code=cleanup");
     await pending;
+  });
+
+  it("accepts the callback over IPv6 loopback, which is where localhost may resolve", async () => {
+    const port = await freePort();
+    const pending = awaitCallback(port, "state-1", () => {});
+    await listening();
+
+    // The redirect URI says localhost; on an IPv6-preferring machine the
+    // browser arrives on ::1, so a v4-only listener would never see it.
+    const res = await new Promise<number>((resolve, reject) => {
+      const req = http.get(
+        { host: "::1", port, path: "/callback?state=state-1&code=v6-code" },
+        (r) => {
+          r.resume();
+          resolve(r.statusCode ?? 0);
+        },
+      );
+      req.on("error", reject);
+    });
+
+    expect(res).toBe(200);
+    await expect(pending).resolves.toEqual({ code: "v6-code" });
   });
 });
 
