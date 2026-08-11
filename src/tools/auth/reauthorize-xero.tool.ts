@@ -2,29 +2,8 @@ import { z } from "zod";
 
 import { reauthorize, ReauthorizationResult } from "../../auth/reauthorize.js";
 import { xeroClient } from "../../clients/xero-client.js";
-import { currentAuthMode } from "../../helpers/xero-auth-status.js";
+import { reauthorizationUnsupportedReason } from "../../helpers/reauthorization-support.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
-
-/**
- * Why re-authorising would not help this server, if it would not.
- *
- * Re-authorisation writes a token file, and only refresh-token mode reads one.
- * On a server started in another mode the write would succeed and change
- * nothing — reporting a repair that did not happen is worse than refusing,
- * because the next failure looks unrelated to it.
- */
-export function reauthorizationUnsupportedReason(
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-  const mode = currentAuthMode(env);
-  if (mode === "refresh token") return undefined;
-
-  return [
-    `This server is running in ${mode} mode, which does not read a token file.`,
-    "Re-authorising would write one that this server ignores, so nothing would change.",
-    "To use refresh-token auth, set XERO_TOKEN_FILE in the server's configuration and restart it, then re-authorise.",
-  ].join(" ");
-}
 
 export function formatReauthorization(result: ReauthorizationResult): string {
   if (result.state === "authorized") {
