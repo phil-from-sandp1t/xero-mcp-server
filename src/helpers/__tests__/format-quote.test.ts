@@ -1,7 +1,7 @@
 import { Quote } from "xero-node";
 import { describe, expect, it } from "vitest";
 
-import { formatLineItem } from "../format-line-item.js";
+import { formatLineItem, formatLineItems } from "../format-line-item.js";
 import { formatQuote } from "../format-quote.js";
 
 // Shaped after a real Xero quote line: no accountCode, no item — the fields an
@@ -45,7 +45,7 @@ describe("formatQuote", () => {
   it("says so when line items were asked for but the quote has none", () => {
     const bare = { ...quote, lineItems: [] } as unknown as Quote;
 
-    expect(formatQuote(bare, true)).toContain("Line Items: none on this quote");
+    expect(formatQuote(bare, true)).toContain("Line Items: none");
   });
 
   it("keeps a zero total visible rather than dropping it", () => {
@@ -80,7 +80,37 @@ describe("formatLineItem", () => {
     });
 
     expect(text).toContain("Item ID: item-9");
-    expect(text).toContain("Tracking: Region=North");
+    expect(text).toContain("Tracking: Region: North");
     expect(text).not.toContain("[object Object]");
+  });
+});
+
+describe("formatLineItems", () => {
+  it("separates lines so one does not run into the next", () => {
+    const text = formatLineItems([quoteLine, { ...quoteLine, description: "Second line" }]);
+
+    expect(text).toContain("Line Items (2):");
+    expect(text).toContain("\n\n");
+    // The bug this replaces: array interpolation joined with commas.
+    expect(text).not.toMatch(/Line Amount: \d+,Description/);
+  });
+
+  it("reports absence rather than rendering nothing", () => {
+    expect(formatLineItems([])).toBe("Line Items: none");
+    expect(formatLineItems(undefined)).toBe("Line Items: none");
+  });
+
+  it("renders multiple tracking categories the way Xero presents them", () => {
+    const text = formatLineItems([
+      {
+        ...quoteLine,
+        tracking: [
+          { name: "Budget", option: "H3VEA-OMNI" },
+          { name: "Budget Owner", option: "Phil" },
+        ],
+      },
+    ]);
+
+    expect(text).toContain("Tracking: Budget: H3VEA-OMNI, Budget Owner: Phil");
   });
 });

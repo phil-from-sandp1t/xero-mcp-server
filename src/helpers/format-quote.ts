@@ -1,6 +1,6 @@
 import { Quote } from "xero-node";
 
-import { formatLineItem } from "./format-line-item.js";
+import { formatLineItems } from "./format-line-item.js";
 
 /**
  * Render a quote for a tool response.
@@ -34,11 +34,7 @@ export function formatQuote(quote: Quote, includeLineItems: boolean): string {
     quote.updatedDateUTC ? `Last Updated: ${quote.updatedDateUTC}` : null,
     // Say so explicitly when they were asked for but are absent, rather than
     // leaving a caller to read silence as "this quote has no lines".
-    includeLineItems
-      ? lineItems.length
-        ? `Line Items (${lineItems.length}):\n${lineItems.map(formatLineItem).join("\n\n")}`
-        : "Line Items: none on this quote"
-      : null,
+    includeLineItems ? formatLineItems(lineItems) : null,
   ]
     .filter(Boolean)
     .join("\n");
