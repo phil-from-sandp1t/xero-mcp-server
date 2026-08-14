@@ -10,12 +10,18 @@ import { LineItem } from "xero-node";
  * amount of 0 is a value, not an absence.
  */
 export const formatLineItem = (lineItem: LineItem): string => {
-  const item = lineItem.item;
-  const tracking = lineItem.tracking ?? [];
+  // `item` is an object; interpolating it directly yields [object Object]. An
+  // item with none of these set has nothing to show, so emit nothing rather
+  // than the "Item ID: undefined" this function exists to avoid.
+  const itemRef =
+    lineItem.item?.itemID ?? lineItem.item?.code ?? lineItem.item?.name;
+
+  // A tracking entry with neither name nor option says nothing; drop it rather
+  // than rendering "?: ?".
+  const tracking = (lineItem.tracking ?? []).filter((t) => t.name || t.option);
 
   return [
-    // `item` is an object; interpolating it directly yields [object Object].
-    item ? `Item ID: ${item.itemID ?? item.code ?? item.name}` : null,
+    itemRef != null ? `Item ID: ${itemRef}` : null,
     lineItem.itemCode != null ? `Item Code: ${lineItem.itemCode}` : null,
     lineItem.description != null ? `Description: ${lineItem.description}` : null,
     lineItem.quantity != null ? `Quantity: ${lineItem.quantity}` : null,

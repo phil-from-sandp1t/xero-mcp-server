@@ -100,6 +100,17 @@ describe("formatLineItems", () => {
     expect(formatLineItems(undefined)).toBe("Line Items: none");
   });
 
+  it("emits nothing for an item or tracking entry that carries no information", () => {
+    const text = formatLineItems([
+      { ...quoteLine, item: {}, tracking: [{}] },
+    ]);
+
+    expect(text).not.toContain("undefined");
+    expect(text).not.toContain("Item ID");
+    expect(text).not.toContain("Tracking");
+    expect(text).not.toContain("?: ?");
+  });
+
   it("renders multiple tracking categories the way Xero presents them", () => {
     const text = formatLineItems([
       {
