@@ -1,7 +1,7 @@
 import { xeroClient } from "../clients/xero-client.js";
 import { XeroClientResponse } from "../types/tool-response.js";
 import { formatError } from "../helpers/format-error.js";
-import { Quote, QuoteStatusCodes } from "xero-node";
+import { LineItemTracking, Quote, QuoteStatusCodes } from "xero-node";
 import { getClientHeaders } from "../helpers/get-client-headers.js";
 
 interface QuoteLineItem {
@@ -10,6 +10,18 @@ interface QuoteLineItem {
   unitAmount: number;
   accountCode: string;
   taxType: string;
+  itemCode?: string;
+  /**
+   * Xero's Quotes API accepts tracking on quote lines, and update-invoice has
+   * always passed it through. Without it here, a caller could set Budget /
+   * Budget Owner on an invoice line but silently lose it on a quote line.
+   */
+  tracking?: LineItemTracking[];
+  /**
+   * Identifies an existing line so Xero updates it in place. Omitted ids make
+   * the request a wholesale replacement of the quote's lines.
+   */
+  lineItemID?: string;
 }
 
 async function getQuote(quoteId: string): Promise<Quote | undefined> {

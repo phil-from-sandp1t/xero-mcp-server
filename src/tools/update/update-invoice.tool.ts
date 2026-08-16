@@ -23,6 +23,8 @@ const lineItemSchema = z.object({
   tracking: z.array(trackingSchema).describe("Up to 2 tracking categories and options can be added to the line item. \
     Can be obtained from the list-tracking-categories tool. \
     Only use if prompted by the user.").optional(),
+  lineItemID: z.string().describe("The ID of an existing line item, from list-invoices. \
+    Supply it to update that line in place; without it Xero replaces the invoice's lines.").optional(),
 });
 
 const UpdateInvoiceTool = CreateXeroTool(

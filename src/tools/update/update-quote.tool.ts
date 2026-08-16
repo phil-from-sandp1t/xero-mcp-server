@@ -3,17 +3,31 @@ import { updateXeroQuote } from "../../handlers/update-xero-quote.handler.js";
 import { DeepLinkType, getDeepLink } from "../../helpers/get-deeplink.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
 
+const trackingSchema = z.object({
+  name: z.string().describe("The name of the tracking category. Can be obtained from the list-tracking-categories tool"),
+  option: z.string().describe("The name of the tracking option. Can be obtained from the list-tracking-categories tool"),
+  trackingCategoryID: z.string().describe("The ID of the tracking category. \
+    Can be obtained from the list-tracking-categories tool").optional(),
+});
+
 const lineItemSchema = z.object({
   description: z.string(),
   quantity: z.number(),
   unitAmount: z.number(),
   accountCode: z.string(),
   taxType: z.string(),
+  itemCode: z.string().describe("The item code of the line item - can be obtained from the list-items tool").optional(),
+  tracking: z.array(trackingSchema).describe("Up to 2 tracking categories and options can be added to the line item. \
+    Can be obtained from the list-tracking-categories tool. \
+    Only use if prompted by the user.").optional(),
+  lineItemID: z.string().describe("The ID of an existing line item, from list-quotes. \
+    Supply it to update that line in place; without it Xero replaces the quote's lines.").optional(),
 });
 
 const UpdateQuoteTool = CreateXeroTool(
   "update-quote",
   "Update a quote in Xero. Only works on draft quotes.\
+  Line items accept tracking categories (e.g. Budget, Budget Owner), same as update-invoice.\
   All line items must be provided. Any line items not provided will be removed. Including existing line items.\
   Do not modify line items that have not been specified by the user. \
  When a quote is updated, a deep link to the quote in Xero is returned. \

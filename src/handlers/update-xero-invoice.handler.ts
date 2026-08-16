@@ -12,6 +12,12 @@ interface InvoiceLineItem {
   taxType: string;
   itemCode?: string;
   tracking?: LineItemTracking[];
+  /**
+   * Identifies an existing line so Xero updates it in place. Without ids the
+   * request is a wholesale replacement: every existing line is discarded and
+   * recreated, which loses their identity.
+   */
+  lineItemID?: string;
 }
 
 async function getInvoice(invoiceId: string): Promise<Invoice | undefined> {
