@@ -21,6 +21,9 @@ export const formatLineItem = (lineItem: LineItem): string => {
   const tracking = (lineItem.tracking ?? []).filter((t) => t.name || t.option);
 
   return [
+    // The update tools patch by this id, so it has to be reachable from the
+    // list tools that callers read first.
+    lineItem.lineItemID != null ? `Line Item ID: ${lineItem.lineItemID}` : null,
     itemRef != null ? `Item ID: ${itemRef}` : null,
     lineItem.itemCode != null ? `Item Code: ${lineItem.itemCode}` : null,
     lineItem.description != null ? `Description: ${lineItem.description}` : null,

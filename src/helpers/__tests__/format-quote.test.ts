@@ -85,6 +85,19 @@ describe("formatLineItem", () => {
   });
 });
 
+describe("line item ids", () => {
+  it("prints the line item id, which the update tools patch by", () => {
+    expect(formatLineItem(quoteLine)).toContain("Line Item ID: line-1");
+  });
+
+  it("omits it when a line has none", () => {
+    const { lineItemID, ...withoutId } = quoteLine;
+    void lineItemID;
+
+    expect(formatLineItem(withoutId)).not.toContain("Line Item ID");
+  });
+});
+
 describe("formatLineItems", () => {
   it("separates lines so one does not run into the next", () => {
     const text = formatLineItems([quoteLine, { ...quoteLine, description: "Second line" }]);
@@ -106,7 +119,8 @@ describe("formatLineItems", () => {
     ]);
 
     expect(text).not.toContain("undefined");
-    expect(text).not.toContain("Item ID");
+    // Anchored: "Line Item ID" legitimately contains this substring.
+    expect(text).not.toMatch(/^Item ID:/m);
     expect(text).not.toContain("Tracking");
     expect(text).not.toContain("?: ?");
   });
