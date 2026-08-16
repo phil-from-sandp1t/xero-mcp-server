@@ -109,6 +109,30 @@ describe("patchLineItems", () => {
       );
     });
 
+    it("refuses to delete a line by omitting it from a replace", () => {
+      // Replacement drops whatever is not listed — the same money loss the lock
+      // is there to prevent, reached by a different route.
+      expect(() =>
+        patchLineItems(existing, [{ lineItemID: "a", description: "Only this one" }], {
+          ...locked,
+          replaceUnlisted: true,
+        }),
+      ).toThrow(/Cannot remove line b/);
+    });
+
+    it("allows a replace that keeps every existing line", () => {
+      const result = patchLineItems(
+        existing,
+        [
+          { lineItemID: "a", description: "Retagged" },
+          { lineItemID: "b", description: "Also retagged" },
+        ],
+        { ...locked, replaceUnlisted: true },
+      );
+
+      expect(result).toHaveLength(2);
+    });
+
     it("permits resending an unchanged amount", () => {
       const result = patchLineItems(
         existing,

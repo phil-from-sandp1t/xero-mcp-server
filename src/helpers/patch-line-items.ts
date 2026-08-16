@@ -40,6 +40,28 @@ export function patchLineItems(
 ): LineItem[] {
   if (!supplied) return existing;
 
+  // Replacement deletes whatever is not listed. On a settled document that
+  // removes money just as surely as editing an amount, and it would otherwise
+  // slip past the checks below, which only see the lines that were supplied.
+  if (options.replaceUnlisted && options.lockFinancials) {
+    const suppliedIds = new Set(
+      supplied.map((l) => l.lineItemID).filter(Boolean) as string[],
+    );
+    const unidentified = existing.filter((l) => !l.lineItemID);
+    const missing = existing.filter(
+      (l) => l.lineItemID && !suppliedIds.has(l.lineItemID),
+    );
+
+    if (unidentified.length || missing.length) {
+      const dropped = missing.map((l) => l.lineItemID).join(", ");
+      throw new Error(
+        `Cannot remove ${
+          dropped ? `line ${dropped}` : "unidentified lines"
+        } from a document with payments applied. Include every existing line, or drop replaceUnlistedLineItems to patch instead.`,
+      );
+    }
+  }
+
   const byId = new Map(
     existing.filter((l) => l.lineItemID).map((l) => [l.lineItemID as string, l]),
   );
