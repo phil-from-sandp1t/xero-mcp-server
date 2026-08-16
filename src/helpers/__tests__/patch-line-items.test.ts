@@ -41,6 +41,34 @@ describe("patchLineItems", () => {
     expect(result.every((l) => l.lineItemID)).toBe(true);
   });
 
+  it("keeps the document's own line order when patching a later line", () => {
+    // Xero shows lines in order, so retagging line b must not float it to the top.
+    const result = patchLineItems(existing, [{ lineItemID: "b", description: "Retagged" }]);
+
+    expect(result.map((l) => l.lineItemID)).toEqual(["a", "b"]);
+    expect(result[1].description).toBe("Retagged");
+  });
+
+  it("appends genuinely new lines after the existing ones", () => {
+    const result = patchLineItems(existing, [
+      { description: "Added", quantity: 1, unitAmount: 5 },
+      { lineItemID: "a", description: "Patched" },
+    ]);
+
+    expect(result.map((l) => l.lineItemID ?? "new")).toEqual(["a", "b", "new"]);
+    expect(result[0].description).toBe("Patched");
+  });
+
+  it("uses the supplied order only for a deliberate replace", () => {
+    const result = patchLineItems(
+      existing,
+      [{ lineItemID: "b", description: "Second" }, { lineItemID: "a", description: "First" }],
+      { replaceUnlisted: true },
+    );
+
+    expect(result.map((l) => l.lineItemID)).toEqual(["b", "a"]);
+  });
+
   it("treats a line with no id as an addition", () => {
     const result = patchLineItems(existing, [{ description: "New line", quantity: 1, unitAmount: 5 }]);
 

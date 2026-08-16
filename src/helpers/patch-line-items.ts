@@ -43,9 +43,10 @@ export function patchLineItems(
   const byId = new Map(
     existing.filter((l) => l.lineItemID).map((l) => [l.lineItemID as string, l]),
   );
-  const touched = new Set<string>();
+  const patchedById = new Map<string, LineItem>();
+  const additions: LineItem[] = [];
 
-  const merged = supplied.map((line) => {
+  const applied = supplied.map((line) => {
     const current = line.lineItemID ? byId.get(line.lineItemID) : undefined;
 
     if (!current) {
@@ -59,10 +60,9 @@ export function patchLineItems(
           "Cannot add a line to a document with payments applied. Only tracking and descriptions can change.",
         );
       }
+      additions.push(line);
       return line;
     }
-
-    touched.add(current.lineItemID as string);
 
     if (options.lockFinancials) {
       const changed = FINANCIAL_FIELDS.filter(
@@ -81,13 +81,17 @@ export function patchLineItems(
     for (const [key, value] of Object.entries(line)) {
       if (value !== undefined) (patched as Record<string, unknown>)[key] = value;
     }
+    patchedById.set(current.lineItemID as string, patched);
     return patched;
   });
 
-  if (options.replaceUnlisted) return merged;
+  // Replace: exactly what was supplied, in the order supplied.
+  if (options.replaceUnlisted) return applied;
 
-  const untouched = existing.filter(
-    (l) => !l.lineItemID || !touched.has(l.lineItemID),
+  // Patch: keep the document's own order. Line order is visible in Xero, so a
+  // targeted edit to one line must not reshuffle the document around it.
+  const inPlace = existing.map((line) =>
+    line.lineItemID ? (patchedById.get(line.lineItemID) ?? line) : line,
   );
-  return [...merged, ...untouched];
+  return [...inPlace, ...additions];
 }
