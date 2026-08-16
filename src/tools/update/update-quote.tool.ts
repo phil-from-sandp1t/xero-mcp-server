@@ -10,26 +10,45 @@ const trackingSchema = z.object({
     Can be obtained from the list-tracking-categories tool").optional(),
 });
 
+
+// A line identified by lineItemID is a patch: send only what changes. A line
+// without one is a new line, and Xero needs the essentials to create it.
+const requireEssentialsForNewLines = (
+  line: { lineItemID?: string; description?: string; quantity?: number; unitAmount?: number; accountCode?: string; taxType?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (line.lineItemID) return;
+  for (const field of ["description", "quantity", "unitAmount", "accountCode", "taxType"] as const) {
+    if (line[field] === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} is required when adding a new line item (no lineItemID given)`,
+      });
+    }
+  }
+};
+
 const lineItemSchema = z.object({
-  description: z.string(),
-  quantity: z.number(),
-  unitAmount: z.number(),
-  accountCode: z.string(),
-  taxType: z.string(),
+  description: z.string().optional(),
+  quantity: z.number().optional(),
+  unitAmount: z.number().optional(),
+  accountCode: z.string().optional(),
+  taxType: z.string().optional(),
   itemCode: z.string().describe("The item code of the line item - can be obtained from the list-items tool").optional(),
   tracking: z.array(trackingSchema).describe("Up to 2 tracking categories and options can be added to the line item. \
     Can be obtained from the list-tracking-categories tool. \
     Only use if prompted by the user.").optional(),
   lineItemID: z.string().describe("The ID of an existing line item, from list-quotes. \
     Supply it to update that line in place; without it Xero replaces the quote's lines.").optional(),
-});
+}).superRefine(requireEssentialsForNewLines);
 
 const UpdateQuoteTool = CreateXeroTool(
   "update-quote",
-  "Update a quote in Xero. Only works on draft quotes.\
+  "Update a quote in Xero. Works on any quote that has not been invoiced or deleted, including SENT and ACCEPTED.\
   Line items accept tracking categories (e.g. Budget, Budget Owner), same as update-invoice.\
-  All line items must be provided. Any line items not provided will be removed. Including existing line items.\
-  Do not modify line items that have not been specified by the user. \
+  Supply only the line items you are changing, each with its lineItemID from list-quotes; the rest are left untouched.\
+  Fields you omit on a supplied line keep their current value.\
  When a quote is updated, a deep link to the quote in Xero is returned. \
  This deep link can be used to view the quote in Xero directly. \
  This link should be displayed to the user.",
@@ -47,6 +66,9 @@ const UpdateQuoteTool = CreateXeroTool(
     contactId: z.string().optional(),
     date: z.string().optional(),
     expiryDate: z.string().optional(),
+    replaceUnlistedLineItems: z.boolean().optional().describe(
+      "Replace the quote's lines with exactly those supplied, deleting any not listed. Destructive; leave unset to patch.",
+    ),
   },
   async (
     {
@@ -60,6 +82,7 @@ const UpdateQuoteTool = CreateXeroTool(
       contactId,
       date,
       expiryDate,
+      replaceUnlistedLineItems,
     }
   ) => {
     const result = await updateXeroQuote(
@@ -73,6 +96,7 @@ const UpdateQuoteTool = CreateXeroTool(
       contactId,
       date,
       expiryDate,
+      replaceUnlistedLineItems,
     );
     if (result.isError) {
       return {
