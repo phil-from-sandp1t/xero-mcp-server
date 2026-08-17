@@ -68,9 +68,10 @@ const UpdateQuoteTool = CreateXeroTool(
     contactId: z.string().optional(),
     date: z.string().optional(),
     expiryDate: z.string().optional(),
-    status: z.enum(["DRAFT", "SENT", "DECLINED", "ACCEPTED"]).optional().describe(
+    status: z.enum(["DRAFT", "SENT", "DECLINED", "ACCEPTED", "INVOICED"]).optional().describe(
       "New status for the quote. ACCEPTED on an INVOICED quote un-invoices it (the UI's 'Mark as uninvoiced'), \
-      which reopens it for line and tracking edits. On an INVOICED quote, status must be the only change.",
+      which reopens it for line and tracking edits; set INVOICED again afterwards to put it back. \
+      On an INVOICED quote, status must be the only change.",
     ),
     replaceUnlistedLineItems: z.boolean().optional().describe(
       "Replace the quote's lines with exactly those supplied, deleting any not listed. Destructive; leave unset to patch.",

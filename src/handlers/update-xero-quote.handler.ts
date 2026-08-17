@@ -86,6 +86,11 @@ async function updateQuote(
           {
             quoteID: quoteId,
             quoteNumber: existingQuote?.quoteNumber,
+            // Xero validates these on every quote update, including one that
+            // changes nothing but the status: without them it answers 400
+            // "Contact requires a valid ContactId" and "Date cannot be empty".
+            contact: existingQuote?.contact,
+            date: existingQuote?.date,
             status,
           },
         ],
