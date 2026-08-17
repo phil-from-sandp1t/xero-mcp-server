@@ -23,16 +23,6 @@ interface QuoteLineItem {
   lineItemID?: string;
 }
 
-/**
- * Statuses Xero will not accept an update for. Everything else — SENT,
- * ACCEPTED, DECLINED — stays editable, which is how a quote gets retagged after
- * it has left draft. Verified against a live ACCEPTED quote: tracking applied,
- * number, status and totals unchanged.
- */
-const UNEDITABLE_QUOTE_STATUSES: QuoteStatusCodes[] = [
-  QuoteStatusCodes.INVOICED,
-  QuoteStatusCodes.DELETED,
-];
 
 
 async function getQuote(quoteId: string): Promise<Quote | undefined> {
