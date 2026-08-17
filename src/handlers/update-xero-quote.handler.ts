@@ -4,6 +4,7 @@ import { formatError } from "../helpers/format-error.js";
 import { LineItem, LineItemTracking, Quote, QuoteStatusCodes } from "xero-node";
 import { getClientHeaders } from "../helpers/get-client-headers.js";
 import { patchLineItems } from "../helpers/patch-line-items.js";
+import { isStatusOnlyChange } from "../helpers/quote-status.js";
 import { resolveTracking } from "../helpers/resolve-tracking.js";
 
 /**
@@ -22,16 +23,7 @@ interface QuoteLineItem {
   lineItemID?: string;
 }
 
-/**
- * Statuses Xero will not accept an update for. Everything else — SENT,
- * ACCEPTED, DECLINED — stays editable, which is how a quote gets retagged after
- * it has left draft. Verified against a live ACCEPTED quote: tracking applied,
- * number, status and totals unchanged.
- */
-const UNEDITABLE_QUOTE_STATUSES: QuoteStatusCodes[] = [
-  QuoteStatusCodes.INVOICED,
-  QuoteStatusCodes.DELETED,
-];
+
 
 async function getQuote(quoteId: string): Promise<Quote | undefined> {
   await xeroClient.authenticate();
@@ -69,7 +61,37 @@ async function updateQuote(
   expiryDate?: string,
   existingQuote?: Quote,
   replaceUnlistedLineItems?: boolean,
+  status?: QuoteStatusCodes,
+  statusOnly?: boolean,
 ): Promise<Quote | undefined> {
+  // A status-only change carries nothing else: sending line items back to an
+  // invoiced quote is what Xero refuses, and the number is kept because
+  // omitting it makes Xero assign a new one from the sequence.
+  if (statusOnly) {
+    const response = await xeroClient.accountingApi.updateQuote(
+      xeroClient.tenantId,
+      quoteId,
+      {
+        quotes: [
+          {
+            quoteID: quoteId,
+            quoteNumber: existingQuote?.quoteNumber,
+            // Xero validates these on every quote update, including one that
+            // changes nothing but the status: without them it answers 400
+            // "Contact requires a valid ContactId" and "Date cannot be empty".
+            contact: existingQuote?.contact,
+            date: existingQuote?.date,
+            status,
+          },
+        ],
+      },
+      undefined, // idempotencyKey
+      getClientHeaders(),
+    );
+
+    return response.body.quotes?.[0];
+  }
+
   let resolvedLines: LineItem[] | undefined = lineItems;
 
   if (lineItems?.length) {
@@ -95,6 +117,7 @@ async function updateQuote(
     // the sequence, silently renumbering an existing quote.
     quoteNumber: quoteNumber ?? existingQuote?.quoteNumber,
     expiryDate: expiryDate,
+    status: status,
   };
 
   if (contactId) {
@@ -141,17 +164,42 @@ export async function updateXeroQuote(
   date?: string,
   expiryDate?: string,
   replaceUnlistedLineItems?: boolean,
+  status?: QuoteStatusCodes,
 ): Promise<XeroClientResponse<Quote>> {
   try {
     const existingQuote = await getQuote(quoteId);
 
     const quoteStatus = existingQuote?.status;
 
-    if (quoteStatus && UNEDITABLE_QUOTE_STATUSES.includes(quoteStatus)) {
+    const statusOnly = isStatusOnlyChange({
+      lineItems,
+      reference,
+      terms,
+      title,
+      summary,
+      quoteNumber,
+      contactId,
+      date,
+      expiryDate,
+      status,
+    });
+
+    if (quoteStatus === QuoteStatusCodes.DELETED) {
       return {
         result: null,
         isError: true,
         error: `Cannot update quote with status ${quoteStatus}.`,
+      };
+    }
+
+    // Invoiced quotes are locked for content but can still be moved back to
+    // ACCEPTED, which reopens them for editing.
+    if (quoteStatus === QuoteStatusCodes.INVOICED && !statusOnly) {
+      return {
+        result: null,
+        isError: true,
+        error:
+          "Cannot change the contents of an INVOICED quote. Set status to ACCEPTED first to un-invoice it, then edit.",
       };
     }
 
@@ -168,6 +216,8 @@ export async function updateXeroQuote(
       expiryDate,
       existingQuote,
       replaceUnlistedLineItems,
+      status,
+      statusOnly && status !== undefined,
     );
 
     if (!updatedQuote) {

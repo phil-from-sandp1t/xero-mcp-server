@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { QuoteStatusCodes } from "xero-node";
 import { updateXeroQuote } from "../../handlers/update-xero-quote.handler.js";
 import { DeepLinkType, getDeepLink } from "../../helpers/get-deeplink.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
@@ -45,7 +46,8 @@ const lineItemSchema = z.object({
 
 const UpdateQuoteTool = CreateXeroTool(
   "update-quote",
-  "Update a quote in Xero. Works on any quote that has not been invoiced or deleted, including SENT and ACCEPTED.\
+  "Update a quote in Xero. Works on any quote that is not deleted, including SENT and ACCEPTED.\
+  An INVOICED quote accepts a status change only: set status ACCEPTED to un-invoice it, then edit its contents.\
   Line items accept tracking categories (e.g. Budget, Budget Owner), same as update-invoice.\
   Supply only the line items you are changing, each with its lineItemID from list-quotes; the rest are left untouched.\
   Fields you omit on a supplied line keep their current value.\
@@ -66,6 +68,11 @@ const UpdateQuoteTool = CreateXeroTool(
     contactId: z.string().optional(),
     date: z.string().optional(),
     expiryDate: z.string().optional(),
+    status: z.enum(["DRAFT", "SENT", "DECLINED", "ACCEPTED", "INVOICED"]).optional().describe(
+      "New status for the quote. ACCEPTED on an INVOICED quote un-invoices it (the UI's 'Mark as uninvoiced'), \
+      which reopens it for line and tracking edits; set INVOICED again afterwards to put it back. \
+      On an INVOICED quote, status must be the only change.",
+    ),
     replaceUnlistedLineItems: z.boolean().optional().describe(
       "Replace the quote's lines with exactly those supplied, deleting any not listed. Destructive; leave unset to patch.",
     ),
@@ -83,6 +90,7 @@ const UpdateQuoteTool = CreateXeroTool(
       date,
       expiryDate,
       replaceUnlistedLineItems,
+      status,
     }
   ) => {
     const result = await updateXeroQuote(
@@ -97,6 +105,7 @@ const UpdateQuoteTool = CreateXeroTool(
       date,
       expiryDate,
       replaceUnlistedLineItems,
+      status as QuoteStatusCodes | undefined,
     );
     if (result.isError) {
       return {
