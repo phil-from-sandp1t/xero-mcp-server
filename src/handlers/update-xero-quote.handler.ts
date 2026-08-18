@@ -63,6 +63,7 @@ async function updateQuote(
   replaceUnlistedLineItems?: boolean,
   status?: QuoteStatusCodes,
   statusOnly?: boolean,
+  lockAmounts?: boolean,
 ): Promise<Quote | undefined> {
   // A status-only change carries nothing else: sending line items back to an
   // invoiced quote is what Xero refuses, and the number is kept because
@@ -108,6 +109,12 @@ async function updateQuote(
   const quote: Quote = {
     lineItems: patchLineItems(existingQuote?.lineItems ?? [], resolvedLines, {
       replaceUnlisted: replaceUnlistedLineItems,
+      // A quote that has been billed should not have its amounts move during a
+      // retagging round trip. update-invoice has always locked amounts once
+      // money is applied; a quote reopened from INVOICED deserves the same.
+      lockFinancials: lockAmounts,
+      lockReason:
+        "this quote has left DRAFT, so its amounts are settled; pass allowAmountChanges to reprice it deliberately",
     }),
     reference: reference,
     terms: terms,
@@ -150,6 +157,17 @@ async function updateQuote(
 }
 
 /**
+ * What the caller needs to describe the update: the quote as it now stands, and
+ * the status it held before, so an un-invoicing can be recognised and reported.
+ */
+export interface QuoteUpdateResult {
+  quote: Quote;
+  previousStatus?: QuoteStatusCodes;
+  /** Lines as they stood before the update, for reporting what changed. */
+  previousLineItems?: LineItem[];
+}
+
+/**
  * Update an existing quote in Xero
  */
 export async function updateXeroQuote(
@@ -165,7 +183,8 @@ export async function updateXeroQuote(
   expiryDate?: string,
   replaceUnlistedLineItems?: boolean,
   status?: QuoteStatusCodes,
-): Promise<XeroClientResponse<Quote>> {
+  allowAmountChanges?: boolean,
+): Promise<XeroClientResponse<QuoteUpdateResult>> {
   try {
     const existingQuote = await getQuote(quoteId);
 
@@ -182,7 +201,24 @@ export async function updateXeroQuote(
       date,
       expiryDate,
       status,
-    });
+    }, existingQuote?.quoteNumber);
+
+    // A different number IS a content change; say which, rather than leaving
+    // the caller to guess what counted as content.
+    // A quote that has left DRAFT has gone out: it has been sent, accepted or
+    // billed. Its amounts should not move as a side effect of retagging. There
+    // is no way to tell from the record that a quote was previously invoiced —
+    // once un-invoiced it is simply ACCEPTED — so "has left draft" is the
+    // determinable line. A caller that genuinely means to reprice says so.
+    const lockAmounts =
+      quoteStatus !== undefined &&
+      quoteStatus !== QuoteStatusCodes.DRAFT &&
+      allowAmountChanges !== true;
+
+    const renumbering =
+      quoteNumber !== undefined &&
+      existingQuote?.quoteNumber !== undefined &&
+      quoteNumber !== existingQuote.quoteNumber;
 
     if (quoteStatus === QuoteStatusCodes.DELETED) {
       return {
@@ -194,6 +230,14 @@ export async function updateXeroQuote(
 
     // Invoiced quotes are locked for content but can still be moved back to
     // ACCEPTED, which reopens them for editing.
+    if (quoteStatus === QuoteStatusCodes.INVOICED && renumbering) {
+      return {
+        result: null,
+        isError: true,
+        error: `Cannot renumber an INVOICED quote: it is ${existingQuote?.quoteNumber}, and the request asked for ${quoteNumber}. Un-invoice it first by setting status to ACCEPTED.`,
+      };
+    }
+
     if (quoteStatus === QuoteStatusCodes.INVOICED && !statusOnly) {
       return {
         result: null,
@@ -218,6 +262,7 @@ export async function updateXeroQuote(
       replaceUnlistedLineItems,
       status,
       statusOnly && status !== undefined,
+      lockAmounts,
     );
 
     if (!updatedQuote) {
@@ -225,7 +270,11 @@ export async function updateXeroQuote(
     }
 
     return {
-      result: updatedQuote,
+      result: {
+        quote: updatedQuote,
+        previousStatus: quoteStatus,
+        previousLineItems: existingQuote?.lineItems,
+      },
       isError: false,
       error: null,
     };

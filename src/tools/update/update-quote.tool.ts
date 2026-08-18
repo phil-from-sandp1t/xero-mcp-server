@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { QuoteStatusCodes } from "xero-node";
+import { describeQuoteUpdate } from "../../helpers/quote-update-report.js";
 import { updateXeroQuote } from "../../handlers/update-xero-quote.handler.js";
 import { DeepLinkType, getDeepLink } from "../../helpers/get-deeplink.js";
 import { CreateXeroTool } from "../../helpers/create-xero-tool.js";
@@ -73,6 +74,10 @@ const UpdateQuoteTool = CreateXeroTool(
       which reopens it for line and tracking edits; set INVOICED again afterwards to put it back. \
       On an INVOICED quote, status must be the only change.",
     ),
+    allowAmountChanges: z.boolean().optional().describe(
+      "Permit changing quantity, unit amount, line amount, account code or tax type on a quote that has left DRAFT. \
+      Off by default: a sent, accepted or invoiced quote should not be repriced as a side effect of retagging.",
+    ),
     replaceUnlistedLineItems: z.boolean().optional().describe(
       "Replace the quote's lines with exactly those supplied, deleting any not listed. Destructive; leave unset to patch.",
     ),
@@ -91,6 +96,7 @@ const UpdateQuoteTool = CreateXeroTool(
       expiryDate,
       replaceUnlistedLineItems,
       status,
+      allowAmountChanges,
     }
   ) => {
     const result = await updateXeroQuote(
@@ -106,6 +112,7 @@ const UpdateQuoteTool = CreateXeroTool(
       expiryDate,
       replaceUnlistedLineItems,
       status as QuoteStatusCodes | undefined,
+      allowAmountChanges,
     );
     if (result.isError) {
       return {
@@ -118,7 +125,7 @@ const UpdateQuoteTool = CreateXeroTool(
       };
     }
 
-    const quote = result.result;
+    const quote = result.result.quote;
 
     const deepLink = quote.quoteID
       ? await getDeepLink(DeepLinkType.QUOTE, quote.quoteID)
@@ -129,12 +136,12 @@ const UpdateQuoteTool = CreateXeroTool(
         {
           type: "text" as const,
           text: [
-            "Quote updated successfully:",
-            `ID: ${quote?.quoteID}`,
-            `Contact: ${quote?.contact?.name}`,
-            `Total: ${quote?.total}`,
-            `Status: ${quote?.status}`,
-            deepLink ? `Link to view: ${deepLink}` : null,
+            describeQuoteUpdate(
+              quote,
+              result.result.previousStatus,
+              deepLink,
+              result.result.previousLineItems,
+            ),
           ].join("\n"),
         },
       ],

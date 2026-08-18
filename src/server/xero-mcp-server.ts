@@ -22,6 +22,23 @@ renews the access token from a stored refresh token before each call, so a token
 expiring is not a problem and never needs the user's involvement. Do not ask the
 user to re-authenticate because time has passed.
 
+Editing a quote that has already been invoiced takes three steps, in order:
+un-invoice it (update-quote with status ACCEPTED and nothing else), edit the
+lines, then set status back to INVOICED. Between the first and last step a
+billed quote is sitting in ACCEPTED, so do one quote at a time and finish it.
+If a step fails part way, put the status back before doing anything else.
+
+Never change amounts while retagging. Quantity, unit amount, line amount,
+account code and tax type are refused on a quote that has left DRAFT unless
+allowAmountChanges is set; only tracking and wording should move.
+
+Tracking replaces, it does not merge. Sending tracking for a line replaces every
+category on that line, so a line tagged both Budget and Budget Owner loses the
+one you leave out. Read the line first and resend the tags you want to keep.
+
+Patch by lineItemID, which list-quotes and list-invoices print. Lines you do not
+list are left alone; fields you omit keep their current value.
+
 Scopes are fixed at the moment of authorisation, and are separate from
 authentication. A call can therefore fail for lack of scope while authentication
 is perfectly healthy: Xero answers with 403 / AuthorizationUnsuccessful, and
