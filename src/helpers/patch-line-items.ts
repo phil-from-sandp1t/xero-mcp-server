@@ -17,10 +17,17 @@ export interface PatchOptions {
    */
   replaceUnlisted?: boolean;
   /**
-   * Refuse changes that move money — for a document with payments applied,
-   * where amounts are settled but tracking and wording are still editable.
+   * Refuse changes that move money, where amounts are settled but tracking and
+   * wording are still editable.
    */
   lockFinancials?: boolean;
+  /**
+   * Why the amounts are locked, in the caller's terms. An invoice is locked by
+   * payment, a quote by having left draft — telling an editor of a quote that
+   * "payments have been applied" is simply untrue and sends them looking for a
+   * payment that does not exist.
+   */
+  lockReason?: string;
 }
 
 /**
@@ -40,6 +47,8 @@ export function patchLineItems(
 ): LineItem[] {
   if (!supplied) return existing;
 
+  const reason = options.lockReason ?? "this document has payments applied";
+
   // Replacement deletes whatever is not listed. On a settled document that
   // removes money just as surely as editing an amount, and it would otherwise
   // slip past the checks below, which only see the lines that were supplied.
@@ -57,7 +66,7 @@ export function patchLineItems(
       throw new Error(
         `Cannot remove ${
           dropped ? `line ${dropped}` : "unidentified lines"
-        } from a document with payments applied. Include every existing line, or drop replaceUnlistedLineItems to patch instead.`,
+        }: ${reason}. Include every existing line, or drop replaceUnlistedLineItems to patch instead.`,
       );
     }
   }
@@ -79,7 +88,7 @@ export function patchLineItems(
       }
       if (options.lockFinancials) {
         throw new Error(
-          "Cannot add a line to a document with payments applied. Only tracking and descriptions can change.",
+          `Cannot add a line: ${reason}. Only tracking and descriptions can change.`,
         );
       }
       additions.push(line);
@@ -92,7 +101,7 @@ export function patchLineItems(
       );
       if (changed.length) {
         throw new Error(
-          `Cannot change ${changed.join(", ")} on line ${current.lineItemID}: this document has payments applied. Tracking and descriptions can still be changed.`,
+          `Cannot change ${changed.join(", ")} on line ${current.lineItemID}: ${reason}. Tracking and descriptions can still be changed.`,
         );
       }
     }

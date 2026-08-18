@@ -94,6 +94,7 @@ async function updateInvoice(
     lineItems: patchLineItems(existingInvoice?.lineItems ?? [], resolvedLines, {
       replaceUnlisted: replaceUnlistedLineItems,
       lockFinancials,
+      lockReason: "this invoice has payments applied",
     }),
     reference: reference,
     dueDate: dueDate,
