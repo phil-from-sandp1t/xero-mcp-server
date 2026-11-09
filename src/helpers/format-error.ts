@@ -13,6 +13,10 @@ interface XeroSdkError {
       httpStatusCode?: string;
       problem?: XeroSdkProblem;
       Detail?: string;
+      /** Present on Xero exceptions, e.g. "ValidationException". */
+      Type?: string;
+      /** Present on Xero exceptions, e.g. "A validation exception occurred". */
+      Message?: string;
     };
   };
 }
@@ -47,7 +51,10 @@ function readMessages(list: unknown): string[] {
  * `Elements[*].Warnings[*].Message` are read. Nothing else from the body is
  * returned, so whatever else travels with it cannot leak.
  */
-function extractValidationMessages(body: unknown): string | undefined {
+function extractValidationMessages(
+  body: unknown,
+  status?: number,
+): string | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const payload = body as { Type?: unknown; Elements?: unknown };
   if (!Array.isArray(payload.Elements)) return undefined;
@@ -71,7 +78,11 @@ function extractValidationMessages(body: unknown): string | undefined {
     parts.push(`Warnings: ${unique(warnings).join("; ")}`);
   }
   if (parts.length === 0) return undefined;
-  return `Xero rejected the request: ${parts.join(" ")}`;
+  const prefix =
+    status === undefined
+      ? "Xero rejected the request"
+      : `Xero rejected the request (${status})`;
+  return `${prefix}: ${parts.join(" ")}`;
 }
 
 /**
@@ -90,13 +101,17 @@ function formatStringError(error: string): string {
   if (typeof parsed !== "object" || parsed === null) return GENERIC_ERROR;
 
   const candidate = parsed as {
-    response?: { body?: unknown };
+    response?: { body?: unknown; statusCode?: unknown };
     body?: unknown;
   };
+  const status =
+    typeof candidate.response?.statusCode === "number"
+      ? candidate.response.statusCode
+      : undefined;
   const validation =
-    extractValidationMessages(candidate.response?.body) ??
-    extractValidationMessages(candidate.body) ??
-    extractValidationMessages(parsed);
+    extractValidationMessages(candidate.response?.body, status) ??
+    extractValidationMessages(candidate.body, status) ??
+    extractValidationMessages(parsed, status);
   if (validation) return validation;
 
   // Not a validation payload, but it may still be an SDK error we know how
@@ -110,13 +125,14 @@ function formatSdkError(error: XeroSdkError): string {
   const mapped = formatHttpStatus(status);
   if (mapped) return mapped;
 
-  const validation = extractValidationMessages(error.response.body);
+  const validation = extractValidationMessages(error.response.body, status);
   if (validation) return validation;
 
   const body = error.response.body;
   const problem = body?.problem;
-  const title = problem?.title ?? body?.httpStatusCode ?? "HTTP error";
-  const detail = problem?.detail ?? body?.Detail;
+  const title =
+    problem?.title ?? body?.httpStatusCode ?? body?.Type ?? "HTTP error";
+  const detail = problem?.detail ?? body?.Detail ?? body?.Message;
   return detail ? `${status} ${title}: ${detail}` : `${status} ${title}`;
 }
 
@@ -152,7 +168,7 @@ export function formatError(error: unknown): string {
       const mapped = formatHttpStatus(status);
       if (mapped) return mapped;
     }
-    const validation = extractValidationMessages(error.response?.data);
+    const validation = extractValidationMessages(error.response?.data, status);
     if (validation) return validation;
     return detail || "An error occurred while communicating with Xero.";
   }
