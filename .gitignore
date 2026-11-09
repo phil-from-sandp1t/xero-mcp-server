@@ -146,3 +146,7 @@ dist
 
 # Cursor IDE
 .cursor/
+
+# Local credentials (public repo: never commit)
+.secrets.env.sh
+.outlook-tokens.json
